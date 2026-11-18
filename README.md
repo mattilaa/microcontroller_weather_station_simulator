@@ -3,8 +3,11 @@
 # Microcontroller weather station simulator using QEMU
 
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style
-main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C++20
-and built with CMake.
+main loop on QEMU's `virt` machine (Cortex-A53). MLang implements the weather model,
+sensors, record aggregation and packing, application protocol, console commands,
+reports, integer formatting, boot settings, and scheduling policy. Freestanding
+C++20 and assembly provide hardware drivers, networking, static storage, and
+interoperability adapters. CMake builds them into one firmware image.
 
 It simulates temperature, humidity, wind speed, wind direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
@@ -13,6 +16,43 @@ the Finnish Meteorological Institute's forecast chart:
 ![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
 **Just the commands** for setup, running and testing: [howto.txt](howto.txt).
+
+## MLang toolchain
+
+`./build.sh` fetches [MLang v0.4.4](https://github.com/mattilaa/mlang/releases/tag/v0.4.4)
+into the ignored `subprojects/mlang` directory, builds its host compiler, then
+configures and builds the firmware. Like `../mlacker`, the dependency is a local
+checkout fetched before building, rather than a committed submodule. Existing
+checkouts at a different tag are preserved and reported as an error.
+
+```sh
+# macOS host dependencies (in addition to Python test dependencies below)
+brew install cmake ninja qemu llvm lld flex bison openssl
+./build.sh -G Ninja
+
+# Fetch/build only the host compiler
+./bootstrap.sh
+
+# Select another firmware build directory or configuration
+BUILD_DIR=build-release ./build.sh -G Ninja -DCMAKE_BUILD_TYPE=Release
+```
+
+On Debian/Ubuntu the host compiler needs `build-essential cmake ninja-build
+clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
+Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
+Subsequent firmware builds recompile changed `.mla` modules automatically.
+
+The implementation lives in `src/mlang/`, rooted at `application.mla`. C++ adapters
+keep the existing static object initialization and interfaces; shared structure
+sizes are checked in both languages. v0.4.4 does not support structure-valued
+globals, so the constant climate presets and object graph remain in C++.
+`tools/compile_mlang.py` emits LLVM IR and compiles it for
+`aarch64-none-elf` with strict alignment and general registers only. It supplies
+a non-throwing runtime in the same IR module so LLVM removes MLang's default
+exception frames. The final LLVM pass optimizes for size (`-Oz`). Pointer-check
+failures enter the firmware panic handler.
+The firmware links no hosted MLang runtime and has no heap; array literals are
+avoided because v0.4.4 emits allocations for them.
 
 ## Real time and the speed switch
 

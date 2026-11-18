@@ -1,12 +1,26 @@
 #include "app/scheduler.hpp"
 
-namespace app
-{
+extern "C" void scheduler_poll__ptr_u8_u64_u64(
+    app::scheduler*,
+    uint64_t,
+    uint64_t);
 
-void scheduler::poll(uint64_t now_ms)
+extern "C" app::task* app_task_at(
+    const app::scheduler* scheduler,
+    uint64_t index)
 {
-    for(task* t : *this)
-        t->run_if_due(now_ms);
+    return scheduler->begin()[index];
 }
 
+extern "C" void app_run_task(app::task* task, uint64_t now_ms)
+{
+    task->run_if_due(now_ms);
+}
+
+namespace app
+{
+void scheduler::poll(uint64_t now_ms)
+{
+    scheduler_poll__ptr_u8_u64_u64(this, _count, now_ms);
+}
 } // namespace app

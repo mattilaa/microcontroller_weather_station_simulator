@@ -1,0 +1,399 @@
+// Sensor sampling and time-weighted ten-minute aggregation.
+mod weather_model;
+use weather_model::*;
+mod fixed_math;
+use fixed_math::*;
+mod random;
+use random::*;
+pub struct Clouds {
+    var cirrus: i32;
+    var altostratus: i32;
+    var cumulus: i32;
+    var cumulonimbus: i32;
+    var lcl: i32;
+    var cumulus_top: i32;
+    var cirrus_base: i32;
+    var cirrus_top: i32;
+    var altostratus_base: i32;
+    var altostratus_top: i32;
+    var stratus: i32;
+    var stratocumulus: i32;
+    var nimbostratus: i32;
+    var altocumulus: i32;
+    var stratus_top: i32;
+    var stratocumulus_top: i32;
+    var nimbostratus_top: i32;
+    var altocumulus_base: i32;
+    var altocumulus_top: i32;
+};
+pub struct Reading {
+    var day: u32;
+    var time: u32;
+    var temperature: i32;
+    var humidity: i32;
+    var wind_speed: i32;
+    var wind_gust: i32;
+    var wind_direction: i32;
+    var rain: i32;
+    var rain_today: i32;
+    var cloud_cover: i32;
+    var pressure: i32;
+    var clouds: Clouds;
+};
+pub struct Sensor {
+    var _noise_sigma: i32;
+    var _resolution: i32;
+    var _min: i32;
+    var _max: i32;
+    var _rng: u32;
+};
+pub struct Station {
+    var _model: Model;
+    var _thermometer: Sensor;
+    var _hygrometer: Sensor;
+    var _anemometer: Sensor;
+    var _wind_vane: Sensor;
+    var _sky_imager: Sensor;
+    var _cloud_sensor: Sensor;
+    var _ceilometer: Sensor;
+    var _barometer: Sensor;
+    var _speed: u32;
+    var _last_update_ms: u64;
+    var _unsimulated_ms: u64;
+    var _sum_temperature: i64;
+    var _sum_humidity: i64;
+    var _sum_wind_speed: i64;
+    var _interval_gust: i32;
+    var _sum_cloud_cover: i64;
+    var _sum_pressure: i64;
+    var _sum_cirrus: i64;
+    var _sum_altostratus: i64;
+    var _sum_cumulus: i64;
+    var _sum_cumulonimbus: i64;
+    var _sum_lcl: i64;
+    var _sum_cumulus_top: i64;
+    var _sum_cirrus_base: i64;
+    var _sum_cirrus_top: i64;
+    var _sum_altostratus_base: i64;
+    var _sum_altostratus_top: i64;
+    var _sum_stratus: i64;
+    var _sum_stratocumulus: i64;
+    var _sum_nimbostratus: i64;
+    var _sum_altocumulus: i64;
+    var _sum_direction: i64;
+    var _sum_weight: u32;
+    var _interval_rain: i32;
+    var _unwrapped_direction: i32;
+    var _rain_bucket: i32;
+    var _update_rain: i32;
+    var _rain_today: i32;
+    var _log: ptr<u8>;
+    var _latest: Reading;
+    var _has_reading: bool;
+};
+
+extern fn weather_log_add(log: ptr<u8>, reading: ptr<Reading>) -> void;
+// Cast the weight explicitly: mixed signed/unsigned division in v0.4.4
+// otherwise makes negative winter temperatures unsigned.
+fn station_mean(station: ptr<Station>, sum: i64) -> i32 {
+    unsafe { return i32(sum / i64((*station)._sum_weight));
+    }
+}
+
+// Sensor noise is quantized to instrument resolution and clamped to its range.
+pub fn measure(sensor: ptr<Sensor>, true_value: i32) -> i32 {
+    unsafe {
+        var noisy: i32 = true_value + gaussian(&mut (*sensor)._rng, (*sensor)._noise_sigma);
+        return clamp(round_to(noisy, (*sensor)._resolution), (*sensor)._min, (*sensor)._max);
+    }
+}
+
+pub fn derive_cloud_levels(clouds: ptr<Clouds>) -> void {
+    unsafe {
+        (*clouds).stratus_top = stratus_top((*clouds).lcl, (*clouds).stratus * 10);
+        (*clouds).stratocumulus_top = stratocumulus_top((*clouds).lcl, (*clouds).stratocumulus * 10);
+        (*clouds).nimbostratus_top = (*clouds).altostratus_top;
+        let centre: i32 = ((*clouds).altostratus_base + (*clouds).altostratus_top) / 2 - 15;
+        let half: i32 = 15 + 50 * clamp((*clouds).altocumulus * 10, 0, 1000) / 1000;
+        (*clouds).altocumulus_base = centre + half;
+        (*clouds).altocumulus_top = centre - half;
+    }
+}
+
+pub fn station_set_speed(station: ptr<Station>, speed: u32) -> void {
+    unsafe {
+        (*station)._speed = speed < 1 ? 1 : (speed > 72000 ? 72000 : speed);
+    }
+}
+
+pub fn station_update(station: ptr<Station>, now_ms: u64) -> void {
+    unsafe {
+        (*station)._update_rain = 0;
+        if(!(*station)._has_reading)
+        {
+            advance_simulated(&mut (*station)._model, 0);
+            (*station)._last_update_ms = now_ms;
+            station_sample(station, 0);
+            return;
+        }
+        (*station)._unsimulated_ms += (now_ms - (*station)._last_update_ms) * (*station)._speed;
+        (*station)._last_update_ms = now_ms;
+        var sim_seconds: u64 = (*station)._unsimulated_ms / 1000;
+        (*station)._unsimulated_ms %= 1000;
+        station_simulate(station, sim_seconds);
+    }
+}
+
+pub fn station_set_scenario(station: ptr<Station>, chosen: ptr<Scenario>) -> void {
+    unsafe {
+        set_scenario(&mut (*station)._model, chosen);
+        (*station)._update_rain = 0;
+        station_sample(station, 0);
+    }
+}
+
+pub fn station_fast_forward(station: ptr<Station>, minutes: u32) -> void {
+    unsafe {
+        (*station)._update_rain = 0;
+        station_simulate(station, (u64((minutes))) * 60);
+    }
+}
+
+pub fn station_set_time_of_day(station: ptr<Station>, minute: u32) -> void {
+    unsafe {
+        set_time_of_day(&mut (*station)._model, minute);
+
+        station_reset_interval(station);
+        (*station)._update_rain = 0;
+        station_sample(station, 0);
+    }
+}
+
+// Sample at least once per minute and exactly at each record boundary.
+pub fn station_simulate(station: ptr<Station>, sim_seconds: u64) -> void {
+    unsafe {
+        while(sim_seconds > 0)
+        {
+            var into_interval: i32 =
+                (u32(((*station)._model._sim_seconds % 600)));
+            var chunk: u64 = 600 - into_interval;
+            if(chunk > 60)
+            { chunk = 60;
+            }
+            if(chunk > sim_seconds)
+            { chunk = sim_seconds;
+            }
+
+            advance_simulated(&mut (*station)._model, (u32((chunk))));
+            station_sample(station, (u32((chunk))));
+            sim_seconds -= chunk;
+
+            if((*station)._model._sim_seconds % 600 == 0)
+            { station_close_record(station);
+            }
+        }
+    }
+}
+
+// Tipping-bucket rain, interval gust maxima, and time-weighted sensor sums.
+// Wind direction is unwrapped across north before averaging.
+pub fn station_sample(station: ptr<Station>, weight_seconds: u32) -> void {
+    unsafe {
+        var direction: i32 =
+            wrap(measure(&mut (*station)._wind_vane, (*station)._model._conditions.wind_direction), 360);
+
+        (*station)._rain_bucket += take_rain(&mut (*station)._model);
+        var tipped: i32 = (*station)._rain_bucket / 20 * 20;
+        (*station)._rain_bucket -= tipped;
+        (*station)._interval_rain += tipped;
+        (*station)._update_rain += tipped;
+        (*station)._rain_today += tipped;
+
+        var wind_speed: i32 = measure(&mut (*station)._anemometer, (*station)._model._conditions.wind_speed);
+        var peak: i32 = measure(&mut (*station)._anemometer, (*station)._model._conditions.wind_gust);
+        if(peak > (*station)._interval_gust)
+        { (*station)._interval_gust = peak;
+        }
+
+        (*station)._latest = Reading {
+            day: day(&mut (*station)._model),
+                time: (second_of_day(&mut (*station)._model)),
+                temperature: (measure(&mut (*station)._thermometer, (*station)._model._conditions.temperature)),
+                humidity: (measure(&mut (*station)._hygrometer, (*station)._model._conditions.humidity)),
+                wind_speed: (wind_speed),
+                wind_gust: ((*station)._interval_gust),
+                wind_direction: (direction),
+                rain: ((*station)._update_rain),
+                rain_today: ((*station)._rain_today),
+                cloud_cover: (measure(&mut (*station)._sky_imager, (*station)._model._conditions.cloud_cover / 10)),
+                pressure: (measure(&mut (*station)._barometer, (*station)._model._conditions.pressure)),
+                clouds: Clouds {
+                cirrus: (measure(&mut (*station)._cloud_sensor, (*station)._model._conditions.cirrus / 10)),
+                    altostratus: (measure(&mut (*station)._cloud_sensor, (*station)._model._conditions.altostratus / 10)),
+                    cumulus: (measure(&mut (*station)._cloud_sensor, (*station)._model._conditions.cumulus / 10)),
+                    cumulonimbus: (measure(&mut (*station)._cloud_sensor,
+                    (*station)._model._conditions.cumulonimbus / 10)),
+                    lcl: (measure(&mut (*station)._ceilometer, (*station)._model._conditions.lcl)),
+                    cumulus_top: (measure(&mut (*station)._ceilometer, (*station)._model._conditions.cumulus_top)),
+                    cirrus_base: (measure(&mut (*station)._ceilometer, (*station)._model._conditions.cirrus_base)),
+                    cirrus_top: (measure(&mut (*station)._ceilometer, (*station)._model._conditions.cirrus_top)),
+                    altostratus_base: (measure(&mut (*station)._ceilometer,
+                    (*station)._model._conditions.altostratus_base)),
+                    altostratus_top: (measure(&mut (*station)._ceilometer, (*station)._model._conditions.altostratus_top)),
+                    stratus: (measure(&mut (*station)._cloud_sensor, (*station)._model._conditions.stratus / 10)),
+                    stratocumulus: (measure(&mut (*station)._cloud_sensor,
+                    (*station)._model._conditions.stratocumulus / 10)),
+                    nimbostratus: (measure(&mut (*station)._cloud_sensor,
+                    (*station)._model._conditions.nimbostratus / 10)),
+                    altocumulus: (measure(&mut (*station)._cloud_sensor, (*station)._model._conditions.altocumulus / 10))
+            }
+        };
+        derive_cloud_levels(&mut (*station)._latest.clouds);
+
+        if(!(*station)._has_reading)
+        { (*station)._unwrapped_direction = direction;
+        }
+        else
+        {
+            var turn: i32 = direction - wrap((*station)._unwrapped_direction, 360);
+            if(turn > 180)
+            { turn -= 360;
+            }
+            else if(turn <= -180)
+            { turn += 360;
+            }
+            (*station)._unwrapped_direction += turn;
+        }
+
+        var weight: u32 = weight_seconds > 0 ? weight_seconds
+        : (*station)._sum_weight == 0 ? 1
+        : 0;
+        (*station)._sum_temperature +=
+            (i64(((*station)._latest.temperature))) * weight;
+        (*station)._sum_humidity += (i64(((*station)._latest.humidity))) * weight;
+        (*station)._sum_wind_speed += (i64(((*station)._latest.wind_speed))) * weight;
+        (*station)._sum_cloud_cover +=
+            (i64(((*station)._latest.cloud_cover))) * weight;
+        (*station)._sum_pressure += (i64(((*station)._latest.pressure))) * weight;
+
+        (*station)._sum_cirrus += (i64(((*station)._latest.clouds.cirrus))) * weight;
+        (*station)._sum_altostratus += (i64(((*station)._latest.clouds.altostratus))) * weight;
+        (*station)._sum_cumulus += (i64(((*station)._latest.clouds.cumulus))) * weight;
+        (*station)._sum_cumulonimbus += (i64(((*station)._latest.clouds.cumulonimbus))) * weight;
+        (*station)._sum_lcl += (i64(((*station)._latest.clouds.lcl))) * weight;
+        (*station)._sum_cumulus_top += (i64(((*station)._latest.clouds.cumulus_top))) * weight;
+        (*station)._sum_cirrus_base += (i64(((*station)._latest.clouds.cirrus_base))) * weight;
+        (*station)._sum_cirrus_top += (i64(((*station)._latest.clouds.cirrus_top))) * weight;
+        (*station)._sum_altostratus_base +=
+            (i64(((*station)._latest.clouds.altostratus_base))) * weight;
+        (*station)._sum_altostratus_top +=
+            (i64(((*station)._latest.clouds.altostratus_top))) * weight;
+        (*station)._sum_stratus += (i64(((*station)._latest.clouds.stratus))) * weight;
+        (*station)._sum_stratocumulus += (i64(((*station)._latest.clouds.stratocumulus))) * weight;
+        (*station)._sum_nimbostratus += (i64(((*station)._latest.clouds.nimbostratus))) * weight;
+        (*station)._sum_altocumulus += (i64(((*station)._latest.clouds.altocumulus))) * weight;
+        (*station)._sum_direction += (i64(((*station)._unwrapped_direction))) * weight;
+        (*station)._sum_weight += weight;
+        (*station)._has_reading = true;
+    }
+}
+
+pub fn station_interval_mean(station: ptr<Station>, result: ptr<Reading>) -> void {
+    unsafe {
+        if(*station)._sum_weight == 0 {
+            * result = (*station)._latest;
+            return;
+        }
+        station_mean_of_interval(station, result);
+        derive_cloud_levels(&mut (*result).clouds);
+    }
+}
+
+pub // Cast the weight explicitly: mixed signed/unsigned division in v0.4.4
+// otherwise makes negative winter temperatures unsigned.
+fn station_mean_of_interval(station: ptr<Station>, result: ptr<Reading>) -> void {
+    unsafe {
+        * result = Reading {
+            day: (*station)._latest.day,
+                time: (*station)._latest.time,
+                temperature: (station_mean(station, (*station)._sum_temperature)),
+                humidity: (station_mean(station, (*station)._sum_humidity)),
+                wind_speed: (station_mean(station, (*station)._sum_wind_speed)),
+                wind_gust: ((*station)._interval_gust),
+                wind_direction: (wrap(station_mean(station, (*station)._sum_direction), 360)),
+                rain: ((*station)._interval_rain),
+                rain_today: ((*station)._rain_today),
+                cloud_cover: (station_mean(station, (*station)._sum_cloud_cover)),
+                pressure: (station_mean(station, (*station)._sum_pressure)),
+                clouds: Clouds {
+                cirrus: (station_mean(station, (*station)._sum_cirrus)),
+                    altostratus: (station_mean(station, (*station)._sum_altostratus)),
+                    cumulus: (station_mean(station, (*station)._sum_cumulus)),
+                    cumulonimbus: (station_mean(station, (*station)._sum_cumulonimbus)),
+                    lcl: (station_mean(station, (*station)._sum_lcl)),
+                    cumulus_top: (station_mean(station, (*station)._sum_cumulus_top)),
+                    cirrus_base: (station_mean(station, (*station)._sum_cirrus_base)),
+                    cirrus_top: (station_mean(station, (*station)._sum_cirrus_top)),
+                    altostratus_base: (station_mean(station, (*station)._sum_altostratus_base)),
+                    altostratus_top: (station_mean(station, (*station)._sum_altostratus_top)),
+                    stratus: (station_mean(station, (*station)._sum_stratus)),
+                    stratocumulus: (station_mean(station, (*station)._sum_stratocumulus)),
+                    nimbostratus: (station_mean(station, (*station)._sum_nimbostratus)),
+                    altocumulus: (station_mean(station, (*station)._sum_altocumulus))
+            }
+        };
+    }
+}
+
+pub fn station_close_record(station: ptr<Station>) -> void {
+    unsafe {
+        var record: Reading {};
+        station_interval_mean(station, &mut record);
+        weather_log_add((*station)._log, &mut record);
+
+        if(second_of_day(&mut (*station)._model) == 0)
+        { (*station)._rain_today = 0;
+        }
+
+        station_reset_interval(station);
+    }
+}
+
+pub fn station_reset_interval(station: ptr<Station>) -> void {
+    unsafe {
+        (*station)._sum_temperature = 0;
+        (*station)._sum_humidity = 0;
+        (*station)._sum_wind_speed = 0;
+        (*station)._sum_direction = 0;
+        (*station)._interval_gust = 0;
+        (*station)._sum_cloud_cover = 0;
+        (*station)._sum_cirrus = 0;
+        (*station)._sum_altostratus = 0;
+        (*station)._sum_cumulus = 0;
+        (*station)._sum_pressure = 0;
+        (*station)._sum_cumulonimbus = 0;
+        (*station)._sum_lcl = 0;
+        (*station)._sum_cumulus_top = 0;
+        (*station)._sum_cirrus_base = 0;
+        (*station)._sum_cirrus_top = 0;
+        (*station)._sum_altostratus_base = 0;
+        (*station)._sum_altostratus_top = 0;
+        (*station)._sum_stratus = 0;
+        (*station)._sum_stratocumulus = 0;
+        (*station)._sum_nimbostratus = 0;
+        (*station)._sum_altocumulus = 0;
+        (*station)._sum_weight = 0;
+        (*station)._interval_rain = 0;
+    }
+}
+// Guard the shared layouts used by the C++ ABI adapters.
+fn verify_layout() -> i32 {
+    static_assert!(size_of(Model) == 232);
+    static_assert!(size_of(Scenario) == 104);
+    static_assert!(size_of(Conditions) == 108);
+    static_assert!(size_of(Station) == 744);
+    static_assert!(size_of(Sensor) == 20);
+    static_assert!(size_of(Clouds) == 76);
+    static_assert!(size_of(Reading) == 120);
+    return 0;
+}

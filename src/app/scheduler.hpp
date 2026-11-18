@@ -3,6 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+extern "C" bool task_due__ptr_u64_ptr_u32_u32_u64(
+    uint64_t*,
+    uint32_t*,
+    uint32_t,
+    uint64_t);
+
 namespace app
 {
 
@@ -24,10 +30,12 @@ public:
     // run one period later. Returns true if the task ran.
     bool run_if_due(uint64_t now_ms)
     {
-        if(now_ms < _next_run_ms)
+        if(!task_due__ptr_u64_ptr_u32_u32_u64(
+               &_next_run_ms,
+               &_runs,
+               _period_ms,
+               now_ms))
             return false;
-        _next_run_ms = now_ms + _period_ms;
-        ++_runs;
         run(now_ms);
         return true;
     }

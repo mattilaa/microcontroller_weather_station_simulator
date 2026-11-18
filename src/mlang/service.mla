@@ -1,0 +1,142 @@
+// Application protocol. Packet transport and bounded reply storage remain in C++.
+mod text;
+use text::*;
+mod reports;
+use reports::*;
+mod weather_station;
+use weather_station::*;
+mod weather_model;
+use weather_model::*;
+mod platform;
+use platform::*;
+
+pub fn find_scenario_index(data: ptr<u8>, size: u64, offset: u64) -> i32 {
+    unsafe {
+        var i: u32 = 0;
+        while i < app_scenario_count() {
+            let scenario: ptr<Scenario> = app_scenario_at(i);
+            var j: u64 = 0;
+            while app_char_at((*scenario).name, j) != 0 && offset + j < size && app_char_at((*scenario).name, j) == app_byte_at(data, offset + j) {
+                j += 1;
+            }
+            if offset + j == size && app_char_at((*scenario).name, j) == 0 { return i32(i); }
+            i += 1;
+        }
+        return -1;
+    }
+}
+
+pub fn write_log_page(out: ptr<u8>, log: ptr<u8>, from: u32) -> void {
+    unsafe {
+        let first: u64 = app_log_find(log, from);
+        let available: u64 = app_log_size(log) - first;
+        let count: u64 = available < 9 ? available : 9;
+        var reading: Reading {};
+        var next: u32 = app_log_next(log);
+        if count > 0 { next = app_log_read(log, first + count - 1, &mut reading) + 1;
+        }
+        write_text(out, "log next=");
+        write_int(out, i64(next));
+        write_text(out, " count=");
+        write_int(out, i64(count));
+        write_text(out, "\n");
+        var i: u64 = first;
+        while i < first + count {
+            let sequence: u32 = app_log_read(log, i, &mut reading);
+            write_csv_row(out, sequence, &mut reading);
+            i += 1;
+        }
+    }
+}
+
+pub fn handle_command(station: ptr<Station>, data: ptr<u8>, size: u64, out: ptr<u8>) -> void {
+    unsafe {
+        while size > 0 && (app_byte_at(data, size - 1) == 10 || app_byte_at(data, size - 1) == 13 || app_byte_at(data, size - 1) == 32) { size -= 1;
+        }
+        if equals(data, size, "weather") {
+            if (*station)._has_reading {
+                write_json(out, &mut (*station)._latest);
+                write_text(out, ",\"speed\":");
+                write_int(out, i64((*station)._speed));
+                write_text(out, ",\"scenario\":\"");
+                write_text(out, (*(*station)._model._scenario).name);
+                write_text(out, "\"}\n");
+            } else { write_text(out, "error: no reading yet\n");
+            }
+        } else if starts_with(data, size, "time ") {
+            let minute: i32 = parse_clock(data, size, 5);
+            if minute < 0 { write_text(out, "error: expected time HH:MM\n");
+            }
+            else {
+                station_set_time_of_day(station, u32(minute));
+                write_text(out, "ok time ");
+                write_minute(out, u32(minute));
+                write_text(out, "\n");
+            }
+        } else if equals(data, size, "log") { write_log_page(out, (*station)._log, 0);
+        }
+        else if starts_with(data, size, "log ") {
+            let from: i32 = parse_number(data, size, 4);
+            if from < 0 { write_text(out, "error: expected log <sequence>\n");
+            }
+            else { write_log_page(out, (*station)._log, u32(from));
+            }
+        } else if starts_with(data, size, "advance ") {
+            let minutes: i32 = parse_number(data, size, 8);
+            if minutes < 10 || minutes > 4320 { write_text(out, "error: expected advance <minutes> (10..4320)\n");
+            }
+            else {
+                station_fast_forward(station, u32(minutes));
+                write_text(out, "ok advanced to day ");
+                write_int(out, i64((*station)._latest.day));
+                write_text(out, " ");
+                write_minute(out, (*station)._latest.time / 60);
+                write_text(out, "\n");
+            }
+        } else if equals(data, size, "scenarios") {
+            write_text(out, "scenarios:");
+            var i: u32 = 0;
+            while i < app_scenario_count() {
+                write_text(out, " ");
+                write_text(out, (*app_scenario_at(i)).name);
+                i += 1;
+            }
+            write_text(out, "\n");
+        } else if equals(data, size, "scenario") {
+            write_text(out, "scenario ");
+            write_text(out, (*(*station)._model._scenario).name);
+            write_text(out, ": ");
+            write_text(out, (*(*station)._model._scenario).description);
+            write_text(out, "\n");
+        } else if starts_with(data, size, "scenario ") {
+            let chosen: i32 = find_scenario_index(data, size, 9);
+            if chosen < 0 { write_text(out, "error: unknown scenario (try: scenarios)\n");
+            }
+            else {
+                station_set_scenario(station, app_scenario_at(u32(chosen)));
+                write_text(out, "ok scenario ");
+                write_text(out, (*(*station)._model._scenario).name);
+                write_text(out, "\n");
+            }
+        } else if equals(data, size, "speed") {
+            write_text(out, "speed ");
+            write_int(out, i64((*station)._speed));
+            write_text(out, "\n");
+        } else if starts_with(data, size, "speed ") {
+            let speed: i32 = parse_number(data, size, 6);
+            if speed < 1 || speed > 72000 { write_text(out, "error: expected speed <1..72000>\n");
+            }
+            else {
+                station_set_speed(station, u32(speed));
+                write_text(out, "ok speed ");
+                write_int(out, i64((*station)._speed));
+                write_text(out, "\n");
+            }
+        } else if equals(data, size, "ping") { write_text(out, "pong\n");
+        }
+        else if equals(data, size, "help") { write_text(out, "commands: weather, time HH:MM, log [sequence], advance <minutes>, speed [N], scenario [name], scenarios, ping, help\n");
+        }
+        else { write_text(out, "error: unknown command\n");
+        }
+    }
+}

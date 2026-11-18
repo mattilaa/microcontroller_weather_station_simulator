@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Bare-metal AArch64 firmware (no OS) in freestanding C++20, run on QEMU `virt` (Cortex-A53), built with CMake. It's a simulated weather station: sensors for temperature, humidity, wind speed and direction, rain, cloud cover, cloud layers (cirrus, altostratus, cumulus, cumulonimbus) and the cloud base (LCL) read a simulated weather model. Readings go to the UART, into a log, and to a UDP service over a virtio-net Ethernet device. `tools/weather_tool.py` imports the log and plots it.
+Bare-metal AArch64 firmware (no OS), run on QEMU `virt` (Cortex-A53), built with CMake. Application algorithms are in `src/mlang/`, rooted at `application.mla`: weather, sensors, aggregation, packed records, commands, reports, formatting, boot settings, and scheduler policy. C++20/assembly provide drivers, networking, static storage, and ABI adapters. The C++ application interfaces described below remain, but their algorithms delegate to MLang. `tools/weather_tool.py` imports the log and plots it.
+
+`./build.sh -G Ninja` fetches/builds the pinned MLang v0.4.4 release in ignored `subprojects/mlang` before building firmware. Direct CMake configuration also bootstraps a missing compiler. `tools/compile_mlang.py` retargets emitted LLVM IR to bare-metal AArch64, supplies a non-throwing runtime, and applies strict alignment, general-register-only code generation and `-Oz`. Do not add heap-backed MLang array literals or link the hosted standard library. Keep shared C++/MLang layouts synchronized; both sides assert sizes. Structure-valued globals are unsupported in v0.4.4, so climate presets and static object initialization remain in C++.
 
 ## Commands
 

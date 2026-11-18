@@ -16,6 +16,20 @@
 #include "hal/virtio_net.hpp"
 #include "net/stack.hpp"
 
+extern "C"
+{
+    void apply_speed_switch__ptr_struct_Station_ptr_u8_ptr_u8_i32(
+        app::weather_station*,
+        util::text_stream*,
+        const uint8_t*,
+        int32_t);
+    void apply_scenario_switch__ptr_struct_Station_ptr_u8_ptr_u8_i32(
+        app::weather_station*,
+        util::text_stream*,
+        const uint8_t*,
+        int32_t);
+}
+
 namespace
 {
 
@@ -64,16 +78,11 @@ void apply_speed_switch()
     uint8_t text[12] = {};
     const int32_t size =
         hal::fw_cfg::read_file("opt/weather/speed", {text, sizeof(text)});
-    uint32_t speed = 0;
-    for(int32_t i = 0; i < size && i < static_cast<int32_t>(sizeof(text)); ++i)
-        if(text[i] >= '0' && text[i] <= '9')
-            speed = speed * 10 + (text[i] - '0');
-    if(speed > 0)
-        station.set_speed(speed);
-    serial_console << "simulation speed: " << station.speed() << "x"
-                   << (station.speed() == 1 ? " (real time)" : "")
-                   << (speed > 0 ? ", from QEMU -fw_cfg opt/weather/speed\n"
-                                 : ", default\n");
+    apply_speed_switch__ptr_struct_Station_ptr_u8_ptr_u8_i32(
+        &station,
+        &serial_console,
+        text,
+        size);
 }
 
 // The scenario switch: -fw_cfg name=opt/weather/scenario,string=<name>
@@ -82,19 +91,11 @@ void apply_scenario_switch()
     uint8_t text[32] = {};
     const int32_t size =
         hal::fw_cfg::read_file("opt/weather/scenario", {text, sizeof(text)});
-    size_t length = 0;
-    while(size > 0 && length < static_cast<size_t>(size) &&
-          length < sizeof(text) && text[length] > ' ')
-        ++length;
-    const weather_scenario* chosen =
-        size > 0 ? find_scenario({text, length}) : nullptr;
-    if(chosen)
-        station.set_scenario(*chosen);
-    serial_console << "scenario: " << station.scenario().name << " ("
-                   << station.scenario().description << ")"
-                   << (chosen     ? ", from QEMU -fw_cfg opt/weather/scenario\n"
-                       : size > 0 ? ", unknown name in -fw_cfg, using default\n"
-                                  : ", default\n");
+    apply_scenario_switch__ptr_struct_Station_ptr_u8_ptr_u8_i32(
+        &station,
+        &serial_console,
+        text,
+        size);
 }
 
 unsigned current_el()

@@ -84,7 +84,8 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build ${{ matrix.packages }}
+          sudo apt-get install -y --no-install-recommends ninja-build \
+            clang llvm-dev lld flex bison libssl-dev ${{ matrix.packages }}
 
       - name: Show compiler
         run: |
@@ -93,6 +94,9 @@ jobs:
           else
             clang++ --version
           fi
+
+      - name: Bootstrap MLang v0.4.4
+        run: ./bootstrap.sh
 
       - name: Configure
         run: >

@@ -1,0 +1,11 @@
+// Root module compiled into the firmware; imported modules are emitted once.
+mod service;
+mod console;
+use service::*;
+use console::*;
+mod boot;
+use boot::*;
+mod scheduler;
+use scheduler::*;
+mod log;
+use log::*;

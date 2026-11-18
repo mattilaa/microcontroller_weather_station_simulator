@@ -34,11 +34,16 @@ No RTTI Data
 
 No Exception Handling Or Unwinding
     Symbols Should Not Match    __gxx_personality    _Unwind_    __cxa_throw    __cxa_begin_catch
+    Symbols Should Not Match    __mlang_std_exceptions_    ^_setjmp$    ^fwrite$    ^stderr$    ^__stderrp$
     Section Should Not Exist    .eh_frame
     Section Should Not Exist    .gcc_except_table
 
 No Heap Allocation
     Symbols Should Not Match    ^_Znwm    ^_Znam    ^_ZdlPv    ^_ZdaPv    ^malloc$    ^free$
+
+Weather Simulation Uses MLang
+    Get Symbol Address    handle_command__ptr_struct_Station_ptr_u8_u64_ptr_u8
+    Get Symbol Address    weather_task_run__ptr_struct_Station_ptr_u8_bool_u64
 
 No Thread-Safe Static Guards Or Atexit Destructors
     Symbols Should Not Match    __cxa_guard_    __cxa_atexit    ^atexit$

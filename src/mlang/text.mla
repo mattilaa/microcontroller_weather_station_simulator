@@ -1,0 +1,194 @@
+// Allocation-free formatting over the firmware's byte-output interface.
+mod fixed_math;
+use fixed_math::*;
+extern pub fn app_put(out: ptr<u8>, byte: u32) -> void;
+// v0.4.4 lacks pointer arithmetic and string indexing. Volatile byte loads
+// preserve alignment and bounds already checked by callers.
+pub fn app_byte_at(data: ptr<u8>, offset: u64) -> u32 {
+    let seed: u32 = 0;
+    return asm volatile aarch64(u32, "ldrb ${0:w}, [$2, $3]", seed, data, offset);
+}
+
+pub fn app_char_at(data: str8, offset: u64) -> u32 {
+    let seed: u32 = 0;
+    return asm volatile aarch64(u32, "ldrb ${0:w}, [$2, $3]", seed, data, offset);
+}
+
+pub fn write_text(out: ptr<u8>, text: str8) -> void {
+    unsafe {
+        var i: u64 = 0;
+        var c: u32 = app_char_at(text, i);
+        while c != 0 {
+            app_put(out, c);
+            i += 1;
+            c = app_char_at(text, i);
+        }
+    }
+}
+
+pub fn write_uint(out: ptr<u8>, value: u64, base: u64, width: u32, pad: u32) -> void {
+    unsafe {
+        var remaining: u64 = value;
+        var scale: u64 = 1;
+        var digits: u32 = 1;
+        while remaining >= base {
+            remaining /= base;
+            scale *= base;
+            digits += 1;
+        }
+        while digits < width && digits < 24 {
+            app_put(out, pad);
+            digits += 1;
+        }
+        while scale != 0 {
+            let digit: u32 = u32(value / scale);
+            app_put(out, digit < 10 ? 48 + digit : 97 + digit - 10);
+            value %= scale;
+            scale /= base;
+        }
+    }
+}
+
+pub fn write_int(out: ptr<u8>, value: i64) -> void {
+    unsafe {
+        var magnitude: u64 = u64(value);
+        if value < 0 {
+            app_put(out, 45);
+            magnitude = 0u64 - magnitude;
+        }
+        write_uint(out, magnitude, 10, 0, 32);
+    }
+}
+
+pub fn write_fixed(out: ptr<u8>, value: i64, decimals: u32) -> void {
+    unsafe {
+        var scale: u64 = 1;
+        var i: u32 = 0;
+        while i < decimals {
+            scale *= 10;
+            i += 1;
+        }
+        var magnitude: u64 = u64(value);
+        if value < 0 {
+            app_put(out, 45);
+            magnitude = 0u64 - magnitude;
+        }
+        write_uint(out, magnitude / scale, 10, 0, 32);
+        if decimals > 0 {
+            app_put(out, 46);
+            write_uint(out, magnitude % scale, 10, decimals, 48);
+        }
+    }
+}
+
+pub fn write_minute(out: ptr<u8>, minute: u32) -> void {
+    unsafe {
+        write_uint(out, u64(minute / 60), 10, 2, 48);
+        app_put(out, 58);
+        write_uint(out, u64(minute % 60), 10, 2, 48);
+    }
+}
+
+pub fn write_time(out: ptr<u8>, second: u32) -> void {
+    unsafe {
+        write_minute(out, second / 60);
+        app_put(out, 58);
+        write_uint(out, u64(second % 60), 10, 2, 48);
+    }
+}
+
+pub fn compass_point(degrees: i32) -> str8 {
+    unsafe {
+        let point: i32 = ((wrap(degrees, 360) * 10 + 112) / 225) % 16;
+        if point == 0 { return "N"; }
+        if point == 1 { return "NNE"; }
+        if point == 2 { return "NE"; }
+        if point == 3 { return "ENE"; }
+        if point == 4 { return "E"; }
+        if point == 5 { return "ESE"; }
+        if point == 6 { return "SE"; }
+        if point == 7 { return "SSE"; }
+        if point == 8 { return "S"; }
+        if point == 9 { return "SSW"; }
+        if point == 10 { return "SW"; }
+        if point == 11 { return "WSW"; }
+        if point == 12 { return "W"; }
+        if point == 13 { return "WNW"; }
+        if point == 14 { return "NW"; }
+        return "NNW";
+    }
+}
+
+pub fn write_direction(out: ptr<u8>, degrees: i32) -> void {
+    unsafe {
+        write_int(out, i64(degrees));
+        write_text(out, " deg ");
+        write_text(out, compass_point(degrees));
+    }
+}
+
+pub fn equals(data: ptr<u8>, size: u64, word: str8) -> bool {
+    unsafe {
+        var i: u64 = 0;
+        while app_char_at(word, i) != 0 {
+            if i >= size || app_byte_at(data, i) != app_char_at(word, i) { return false; }
+            i += 1;
+        }
+        return i == size;
+    }
+}
+
+pub fn starts_with(data: ptr<u8>, size: u64, word: str8) -> bool {
+    unsafe {
+        var i: u64 = 0;
+        while app_char_at(word, i) != 0 {
+            if i >= size || app_byte_at(data, i) != app_char_at(word, i) { return false; }
+            i += 1;
+        }
+        return true;
+    }
+}
+
+pub fn digit(c: u32) -> i32 {
+    unsafe { return c >= 48 && c <= 57 ? i32(c - 48) : -1;
+    }
+}
+
+pub fn parse_number(data: ptr<u8>, size: u64, offset: u64) -> i32 {
+    unsafe {
+        if offset >= size || size - offset > 9 { return -1; }
+        var value: i32 = 0;
+        var i: u64 = offset;
+        while i < size {
+            let d: i32 = digit(app_byte_at(data, i));
+            if d < 0 { return -1; }
+            value = value * 10 + d;
+            i += 1;
+        }
+        return value;
+    }
+}
+
+pub fn parse_clock(data: ptr<u8>, size: u64, offset: u64) -> i32 {
+    unsafe {
+        if size < offset || size - offset != 5 || app_byte_at(data, offset + 2) != 58 { return -1; }
+        let h1: i32 = digit(app_byte_at(data, offset));
+        let h2: i32 = digit(app_byte_at(data, offset + 1));
+        let m1: i32 = digit(app_byte_at(data, offset + 3));
+        let m2: i32 = digit(app_byte_at(data, offset + 4));
+        if h1 < 0 || h2 < 0 || m1 < 0 || m2 < 0 { return -1; }
+        let hours: i32 = h1 * 10 + h2;
+        let minutes: i32 = m1 * 10 + m2;
+        if hours > 23 || minutes > 59 { return -1; }
+        return hours * 60 + minutes;
+    }
+}
+
+pub fn same_text(left: str8, right: str8) -> bool {
+    var i: u64 = 0;
+    while app_char_at(left, i) == app_char_at(right, i) {
+        if app_char_at(left, i) == 0 { return true; }
+        i += 1;
+    }
+    return false;
+}

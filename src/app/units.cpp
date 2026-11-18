@@ -5,28 +5,11 @@
 namespace app
 {
 
+extern "C" const char* compass_point__i32(int32_t);
+
 const char* compass_point(int32_t degrees)
 {
-    static constexpr const char* POINTS[16] =
-        {"N",
-         "NNE",
-         "NE",
-         "ENE",
-         "E",
-         "ESE",
-         "SE",
-         "SSE",
-         "S",
-         "SSW",
-         "SW",
-         "WSW",
-         "W",
-         "WNW",
-         "NW",
-         "NNW"};
-    // Each point covers 22.5 degrees, centred on its nominal direction.
-    const int32_t tenths = util::wrap(degrees, 360) * 10;
-    return POINTS[((tenths + 112) / 225) % 16];
+    return compass_point__i32(degrees);
 }
 
 util::text_stream& operator<<(util::text_stream& out, centi_celsius t)

@@ -17,11 +17,16 @@ endif()
 
 option(FIRMWARE_WERROR "Treat compiler warnings as errors" OFF)
 
+set(Python3_FIND_VIRTUALENV FIRST)
+include(cmake/mlang.cmake)
+
 set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/linker/qemu_virt.ld)
 
 add_executable(firmware
+    ${MLANG_OBJECT}
     src/startup.S
     src/main.cpp
+    src/app/mlang_bridge.cpp
     src/app/console.cpp
     src/app/scheduler.cpp
     src/app/tasks.cpp

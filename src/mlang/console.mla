@@ -1,0 +1,158 @@
+// Console dispatch, application reports and simulation controls.
+mod weather_station;
+use weather_station::*;
+mod weather_model;
+use weather_model::*;
+mod text;
+use text::*;
+mod reports;
+use reports::*;
+mod platform;
+use platform::*;
+extern pub fn app_put(out: ptr<u8>, byte: u32) -> void;
+
+pub fn print_help(out: ptr<u8>) -> void {
+    write_text(out, "Commands:\n  h  help\n  s  status\n  w  weather report (latest and averages)\n  d  dump the last 8 records\n  n  network status\n  +  faster simulation, -  slower (1x = real time)\n  c  next weather scenario\n  v  toggle verbose output\n  q  quit QEMU (semihosting)\n");
+}
+
+pub fn weather_task_run(station: ptr<Station>, out: ptr<u8>, verbose: bool, now_ms: u64) -> void {
+    unsafe {
+        station_update(station, now_ms);
+        if verbose {
+            write_text(out, "[");
+            write_uint(out, now_ms, 10, 6, 32);
+            write_text(out, " ms] ");
+            write_reading(out, &mut (*station)._latest);
+            write_text(out, "\n");
+        }
+    }
+}
+
+pub fn print_status(station: ptr<Station>, out: ptr<u8>, context: ptr<u8>, now_ms: u64) -> void {
+    unsafe {
+        write_text(out, "--- status @ ");
+        write_int(out, i64(now_ms));
+        write_text(out, " ms ---\n");
+        if (*station)._has_reading {
+            write_text(out, "weather: ");
+            write_reading(out, &mut (*station)._latest);
+            write_text(out, "\n");
+        }
+        write_text(out, "scenario: ");
+        write_text(out, (*(*station)._model._scenario).name);
+        write_text(out, "\nstack: peak ");
+        write_int(out, i64(app_stack_peak()));
+        write_text(out, " of ");
+        write_int(out, i64(app_stack_size()));
+        write_text(out, " bytes\nspeed: ");
+        write_int(out, i64((*station)._speed));
+        write_text(out, "x\nlog: ");
+        write_int(out, i64(app_log_size((*station)._log)));
+        write_text(out, " records, next sequence ");
+        write_int(out, i64(app_log_next((*station)._log)));
+        write_text(out, "\n");
+        app_print_network(context);
+        app_print_tasks(context);
+    }
+}
+
+pub fn print_weather(station: ptr<Station>, out: ptr<u8>) -> void {
+    unsafe {
+        if !(*station)._has_reading { write_text(out, "no reading yet\n");
+            return;
+        }
+        var mean: Reading {};
+        station_interval_mean(station, &mut mean);
+        write_weather_report(out, station, &mut (*station)._latest, &mut mean);
+    }
+}
+
+pub fn print_history(station: ptr<Station>, out: ptr<u8>) -> void {
+    unsafe {
+        let size: u64 = app_log_size((*station)._log);
+        let first: u64 = size > 8 ? size - 8 : 0;
+        write_text(out, "last ");
+        write_int(out, i64(size - first));
+        write_text(out, " 10-minute records (oldest first):\n");
+        var reading: Reading {};
+        var i: u64 = first;
+        while i < size {
+            app_log_read((*station)._log, i, &mut reading);
+            write_text(out, "  ");
+            write_reading(out, &mut reading);
+            write_text(out, "\n");
+            i += 1;
+        }
+    }
+}
+
+fn speed_preset(index: u32) -> u32 {
+    if index == 0 { return 1; }
+    if index == 1 { return 10; }
+    if index == 2 { return 60; }
+    if index == 3 { return 600; }
+    if index == 4 { return 3600; }
+    return 72000;
+}
+
+pub fn change_speed(station: ptr<Station>, out: ptr<u8>, faster: bool) -> void {
+    unsafe {
+        var i: u32 = 0;
+        while i + 1 < 6 && speed_preset(i) < (*station)._speed { i += 1;
+        }
+        if faster && speed_preset(i) == (*station)._speed && i + 1 < 6 { i += 1;
+        }
+        else if !faster && i > 0 { i -= 1;
+        }
+        station_set_speed(station, speed_preset(i));
+        write_text(out, "speed ");
+        write_int(out, i64((*station)._speed));
+        write_text(out, "x\n");
+    }
+}
+
+pub fn next_scenario(station: ptr<Station>, out: ptr<u8>) -> void {
+    unsafe {
+        var i: u32 = 0;
+        while i < app_scenario_count() && !same_text((*app_scenario_at(i)).name, (*(*station)._model._scenario).name) { i += 1;
+        }
+        station_set_scenario(station, app_scenario_at((i + 1) % app_scenario_count()));
+        write_text(out, "scenario ");
+        write_text(out, (*(*station)._model._scenario).name);
+        write_text(out, ": ");
+        write_text(out, (*(*station)._model._scenario).description);
+        write_text(out, "\n");
+    }
+}
+
+pub fn console_command(station: ptr<Station>, out: ptr<u8>, verbose: ptr<bool>, context: ptr<u8>, now_ms: u64, key: u32) -> void {
+    unsafe {
+        if key == 104 { print_help(out);
+        }
+        else if key == 115 { print_status(station, out, context, now_ms);
+        }
+        else if key == 119 { print_weather(station, out);
+        }
+        else if key == 100 { print_history(station, out);
+        }
+        else if key == 110 { app_print_network(context);
+        }
+        else if key == 43 || key == 45 { change_speed(station, out, key == 43);
+        }
+        else if key == 99 { next_scenario(station, out);
+        }
+        else if key == 118 {
+            *verbose = !(*verbose);
+            write_text(out, "verbose ");
+            write_text(out, *verbose ? "on" : "off");
+            write_text(out, "\n");
+        } else if key == 113 { write_text(out, "bye!\n");
+            app_quit();
+        }
+        else if key != 10 && key != 13 {
+            write_text(out, "unknown command '");
+            app_put(out, key);
+            write_text(out, "' (h for help)\n");
+        }
+    }
+}

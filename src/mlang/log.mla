@@ -1,0 +1,99 @@
+// Packed records use C++'s fixed-capacity ring storage, without allocations.
+mod weather_station;
+use weather_station::*;
+mod fixed_math;
+use fixed_math::*;
+pub struct Entry {
+    var sequence: u32;
+    var day: u16;
+    var minute_of_day: u16;
+    var temperature: i16;
+    var humidity: u16;
+    var wind_speed: u16;
+    var wind_gust: u16;
+    var wind_direction: u16;
+    var rain: u16;
+    var lcl: u16;
+    var cumulus_top: u16;
+    var cirrus_base: u16;
+    var cirrus_top: u16;
+    var altostratus_base: u16;
+    var altostratus_top: u16;
+    var cloud_cover: u8;
+    var cirrus: u8;
+    var altostratus: u8;
+    var cumulus: u8;
+    var cumulonimbus: u8;
+    var stratus: u8;
+    var stratocumulus: u8;
+    var nimbostratus: u8;
+    var altocumulus: u8;
+    var pressure: u16;
+};
+pub fn pack_entry(entry: ptr<Entry>, reading: ptr<Reading>, sequence: u32) -> void {
+    unsafe {
+        static_assert!(size_of(Entry) == 44);
+        (*entry).sequence = sequence;
+        (*entry).day = u16(clamp(i32((*reading).day), 0, 65535));
+        (*entry).minute_of_day = u16(clamp(i32((*reading).time / 60), 0, 1439));
+        (*entry).temperature = i16(clamp((*reading).temperature, -32768, 32767));
+        (*entry).humidity = u16(clamp((*reading).humidity, 0, 10000));
+        (*entry).wind_speed = u16(clamp((*reading).wind_speed, 0, 65535));
+        (*entry).wind_gust = u16(clamp((*reading).wind_gust, 0, 65535));
+        (*entry).wind_direction = u16(clamp((*reading).wind_direction, 0, 359));
+        (*entry).rain = u16(clamp((*reading).rain, 0, 65535));
+        (*entry).lcl = u16(clamp((*reading).clouds.lcl, 0, 1100));
+        (*entry).cumulus_top = u16(clamp((*reading).clouds.cumulus_top, 0, 1100));
+        (*entry).cirrus_base = u16(clamp((*reading).clouds.cirrus_base, 0, 1100));
+        (*entry).cirrus_top = u16(clamp((*reading).clouds.cirrus_top, 0, 1100));
+        (*entry).altostratus_base = u16(clamp((*reading).clouds.altostratus_base, 0, 1100));
+        (*entry).altostratus_top = u16(clamp((*reading).clouds.altostratus_top, 0, 1100));
+        (*entry).cloud_cover = u8(clamp((*reading).cloud_cover, 0, 100));
+        (*entry).cirrus = u8(clamp((*reading).clouds.cirrus, 0, 100));
+        (*entry).altostratus = u8(clamp((*reading).clouds.altostratus, 0, 100));
+        (*entry).cumulus = u8(clamp((*reading).clouds.cumulus, 0, 100));
+        (*entry).cumulonimbus = u8(clamp((*reading).clouds.cumulonimbus, 0, 100));
+        (*entry).stratus = u8(clamp((*reading).clouds.stratus, 0, 100));
+        (*entry).stratocumulus = u8(clamp((*reading).clouds.stratocumulus, 0, 100));
+        (*entry).nimbostratus = u8(clamp((*reading).clouds.nimbostratus, 0, 100));
+        (*entry).altocumulus = u8(clamp((*reading).clouds.altocumulus, 0, 100));
+        (*entry).pressure = u16(clamp((*reading).pressure, 0, 65535));
+    }
+}
+
+pub fn unpack_entry(entry: ptr<Entry>, reading: ptr<Reading>) -> void {
+    unsafe {
+        *reading = Reading {};
+        (*reading).day = u32((*entry).day);
+        (*reading).time = u32((*entry).minute_of_day) * 60;
+        (*reading).temperature = i32((*entry).temperature);
+        (*reading).humidity = i32((*entry).humidity);
+        (*reading).wind_speed = i32((*entry).wind_speed);
+        (*reading).wind_gust = i32((*entry).wind_gust);
+        (*reading).wind_direction = i32((*entry).wind_direction);
+        (*reading).rain = i32((*entry).rain);
+        (*reading).clouds.lcl = i32((*entry).lcl);
+        (*reading).clouds.cumulus_top = i32((*entry).cumulus_top);
+        (*reading).clouds.cirrus_base = i32((*entry).cirrus_base);
+        (*reading).clouds.cirrus_top = i32((*entry).cirrus_top);
+        (*reading).clouds.altostratus_base = i32((*entry).altostratus_base);
+        (*reading).clouds.altostratus_top = i32((*entry).altostratus_top);
+        (*reading).cloud_cover = i32((*entry).cloud_cover);
+        (*reading).clouds.cirrus = i32((*entry).cirrus);
+        (*reading).clouds.altostratus = i32((*entry).altostratus);
+        (*reading).clouds.cumulus = i32((*entry).cumulus);
+        (*reading).clouds.cumulonimbus = i32((*entry).cumulonimbus);
+        (*reading).clouds.stratus = i32((*entry).stratus);
+        (*reading).clouds.stratocumulus = i32((*entry).stratocumulus);
+        (*reading).clouds.nimbostratus = i32((*entry).nimbostratus);
+        (*reading).clouds.altocumulus = i32((*entry).altocumulus);
+        (*reading).pressure = i32((*entry).pressure);
+        derive_cloud_levels(&mut (*reading).clouds);
+    }
+}
+
+pub fn log_find(oldest: u32, count: u64, sequence: u32) -> u64 {
+    if count == 0 || sequence <= oldest { return 0; }
+    let offset: u64 = u64(sequence - oldest);
+    return offset < count ? offset : count;
+}

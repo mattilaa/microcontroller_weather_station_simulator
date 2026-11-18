@@ -84,10 +84,10 @@ public:
     int32_t measure(int32_t true_value);
 
 private:
-    int32_t _noise_sigma;
-    int32_t _resolution;
-    int32_t _min;
-    int32_t _max;
+    [[maybe_unused]] int32_t _noise_sigma;
+    [[maybe_unused]] int32_t _resolution;
+    [[maybe_unused]] int32_t _min;
+    [[maybe_unused]] int32_t _max;
     util::xorshift32 _rng;
 };
 
@@ -250,43 +250,48 @@ private:
     sensor_model _ceilometer{2, 1, 150, 1100, 0x7e57'0007u};    // levels, hPa
     sensor_model _barometer{1, 1, 8700, 10850, 0x7e57'0008u};   // 0.1 hPa
 
-    uint32_t _speed = DEFAULT_SPEED;
-    uint64_t _last_update_ms = 0;
-    uint64_t _unsimulated_ms = 0; // simulated ms not yet simulated (<1 s)
+    [[maybe_unused]] uint32_t _speed = DEFAULT_SPEED;
+    [[maybe_unused]] uint64_t _last_update_ms = 0;
+    [[maybe_unused]] uint64_t _unsimulated_ms =
+        0; // simulated ms not yet simulated (<1 s)
 
     // The 10-minute interval in progress: time-weighted sums.
-    int64_t _sum_temperature = 0;
-    int64_t _sum_humidity = 0;
-    int64_t _sum_wind_speed = 0;
-    int32_t _interval_gust = 0; // highest peak wind this interval, 0.01 m/s
-    int64_t _sum_cloud_cover = 0;
-    int64_t _sum_pressure = 0;
-    int64_t _sum_cirrus = 0;
-    int64_t _sum_altostratus = 0;
-    int64_t _sum_cumulus = 0;
-    int64_t _sum_cumulonimbus = 0;
-    int64_t _sum_lcl = 0;
-    int64_t _sum_cumulus_top = 0;
-    int64_t _sum_cirrus_base = 0;
-    int64_t _sum_cirrus_top = 0;
-    int64_t _sum_altostratus_base = 0;
-    int64_t _sum_altostratus_top = 0;
-    int64_t _sum_stratus = 0;
-    int64_t _sum_stratocumulus = 0;
-    int64_t _sum_nimbostratus = 0;
-    int64_t _sum_altocumulus = 0;
-    int64_t _sum_direction = 0; // of the unwrapped (continuous) direction
-    uint32_t _sum_weight = 0;   // seconds
-    int32_t _interval_rain = 0;
-    int32_t _unwrapped_direction = 0;
+    [[maybe_unused]] int64_t _sum_temperature = 0;
+    [[maybe_unused]] int64_t _sum_humidity = 0;
+    [[maybe_unused]] int64_t _sum_wind_speed = 0;
+    [[maybe_unused]] int32_t _interval_gust =
+        0; // highest peak wind this interval, 0.01 m/s
+    [[maybe_unused]] int64_t _sum_cloud_cover = 0;
+    [[maybe_unused]] int64_t _sum_pressure = 0;
+    [[maybe_unused]] int64_t _sum_cirrus = 0;
+    [[maybe_unused]] int64_t _sum_altostratus = 0;
+    [[maybe_unused]] int64_t _sum_cumulus = 0;
+    [[maybe_unused]] int64_t _sum_cumulonimbus = 0;
+    [[maybe_unused]] int64_t _sum_lcl = 0;
+    [[maybe_unused]] int64_t _sum_cumulus_top = 0;
+    [[maybe_unused]] int64_t _sum_cirrus_base = 0;
+    [[maybe_unused]] int64_t _sum_cirrus_top = 0;
+    [[maybe_unused]] int64_t _sum_altostratus_base = 0;
+    [[maybe_unused]] int64_t _sum_altostratus_top = 0;
+    [[maybe_unused]] int64_t _sum_stratus = 0;
+    [[maybe_unused]] int64_t _sum_stratocumulus = 0;
+    [[maybe_unused]] int64_t _sum_nimbostratus = 0;
+    [[maybe_unused]] int64_t _sum_altocumulus = 0;
+    [[maybe_unused]] int64_t _sum_direction =
+        0; // of the unwrapped (continuous) direction
+    [[maybe_unused]] uint32_t _sum_weight = 0; // seconds
+    [[maybe_unused]] int32_t _interval_rain = 0;
+    [[maybe_unused]] int32_t _unwrapped_direction = 0;
 
-    int32_t _rain_bucket = 0; // 0.01 mm collected but not yet tipped
-    int32_t _update_rain = 0; // 0.01 mm tipped during the current update
-    int32_t _rain_today = 0;  // 0.01 mm
+    [[maybe_unused]] int32_t _rain_bucket =
+        0; // 0.01 mm collected but not yet tipped
+    [[maybe_unused]] int32_t _update_rain =
+        0; // 0.01 mm tipped during the current update
+    [[maybe_unused]] int32_t _rain_today = 0; // 0.01 mm
 
     weather_log& _log;
     weather_reading _latest{};
-    bool _has_reading = false;
+    [[maybe_unused]] bool _has_reading = false;
 };
 
 } // namespace app

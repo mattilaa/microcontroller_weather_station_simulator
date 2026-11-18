@@ -1,0 +1,54 @@
+// Apply QEMU configuration supplied by the fw_cfg hardware adapter.
+mod weather_station;
+use weather_station::*;
+mod weather_model;
+use weather_model::*;
+mod service;
+use service::*;
+mod text;
+use text::*;
+mod platform;
+use platform::*;
+
+pub fn apply_speed_switch(station: ptr<Station>, out: ptr<u8>, data: ptr<u8>, size: i32) -> void {
+    unsafe {
+        var speed: u32 = 0;
+        var i: i32 = 0;
+        while i < size && i < 12 {
+            let c: u32 = app_byte_at(data, u64(i));
+            if c >= 48 && c <= 57 { speed = speed * 10 + c - 48;
+            }
+            i += 1;
+        }
+        if speed > 0 { station_set_speed(station, speed);
+        }
+        write_text(out, "simulation speed: ");
+        write_int(out, i64((*station)._speed));
+        write_text(out, "x");
+        if (*station)._speed == 1 { write_text(out, " (real time)");
+        }
+        write_text(out, speed > 0 ? ", from QEMU -fw_cfg opt/weather/speed\n" : ", default\n");
+    }
+}
+
+pub fn apply_scenario_switch(station: ptr<Station>, out: ptr<u8>, data: ptr<u8>, size: i32) -> void {
+    unsafe {
+        var length: u64 = 0;
+        while size > 0 && length < u64(size) && length < 32 && app_byte_at(data, length) > 32 { length += 1;
+        }
+        var chosen: i32 = -1;
+        if size > 0 { chosen = find_scenario_index(data, length, 0);
+        }
+        if chosen >= 0 { station_set_scenario(station, app_scenario_at(u32(chosen)));
+        }
+        write_text(out, "scenario: ");
+        write_text(out, (*(*station)._model._scenario).name);
+        write_text(out, " (");
+        write_text(out, (*(*station)._model._scenario).description);
+        write_text(out, ")");
+        if chosen >= 0 { write_text(out, ", from QEMU -fw_cfg opt/weather/scenario\n");
+        }
+        else { write_text(out, size > 0 ? ", unknown name in -fw_cfg, using default\n" : ", default\n");
+        }
+    }
+}

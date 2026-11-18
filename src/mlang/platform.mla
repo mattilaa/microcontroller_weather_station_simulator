@@ -1,0 +1,16 @@
+// C++ owns static buffers and hardware objects. These calls do not retain borrows.
+mod weather_station;
+use weather_station::*;
+mod weather_model;
+use weather_model::*;
+extern pub fn app_scenario_at(index: u32) -> ptr<Scenario>;
+extern pub fn app_scenario_count() -> u32;
+extern pub fn app_log_size(log: ptr<u8>) -> u64;
+extern pub fn app_log_next(log: ptr<u8>) -> u32;
+extern pub fn app_log_find(log: ptr<u8>, sequence: u32) -> u64;
+extern pub fn app_log_read(log: ptr<u8>, index: u64, reading: ptr<Reading>) -> u32;
+extern pub fn app_print_network(context: ptr<u8>) -> void;
+extern pub fn app_print_tasks(context: ptr<u8>) -> void;
+extern pub fn app_stack_peak() -> u64;
+extern pub fn app_stack_size() -> u64;
+extern pub fn app_quit() -> void;

@@ -1,10 +1,9 @@
 SETUP (once)
-  brew install cmake ninja qemu llvm lld
+  brew install cmake ninja qemu llvm lld flex bison openssl
   python3 -m venv .venv
   source .venv/bin/activate
   pip install -r tests/requirements.txt
-  cmake -B build -G Ninja
-  cmake --build build
+  ./build.sh -G Ninja              # fetch/build MLang v0.4.4, then firmware
 
 RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   source .venv/bin/activate

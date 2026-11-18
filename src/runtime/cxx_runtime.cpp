@@ -27,6 +27,12 @@ extern "C" [[noreturn]] void __cxa_pure_virtual()
     panic("pure virtual function called");
 }
 
+// MLang's checked pointer failure path; no hosted C library is linked.
+extern "C" [[noreturn]] void abort()
+{
+    panic("MLang runtime check failed");
+}
+
 // Run global constructors (.init_array). Called from startup.S before main().
 extern "C"
 {

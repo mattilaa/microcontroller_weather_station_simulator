@@ -1,0 +1,22 @@
+// Scheduling policy; C++ performs virtual hardware-task dispatch.
+extern pub fn app_task_at(scheduler: ptr<u8>, index: u64) -> ptr<u8>;
+extern pub fn app_run_task(task: ptr<u8>, now_ms: u64) -> void;
+
+pub fn task_due(next: ptr<u64>, runs: ptr<u32>, period_ms: u32, now_ms: u64) -> bool {
+    unsafe {
+        if now_ms < *next { return false; }
+        *next = now_ms + u64(period_ms);
+        *runs = *runs + 1;
+        return true;
+    }
+}
+
+pub fn scheduler_poll(scheduler: ptr<u8>, count: u64, now_ms: u64) -> void {
+    unsafe {
+        var i: u64 = 0;
+        while i < count {
+            app_run_task(app_task_at(scheduler, i), now_ms);
+            i += 1;
+        }
+    }
+}

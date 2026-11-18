@@ -3,12 +3,22 @@
 namespace util
 {
 
+extern "C"
+{
+    void write_text__ptr_u8_str8(text_stream*, const char*);
+    void write_int__ptr_u8_i64(text_stream*, int64_t);
+    void write_fixed__ptr_u8_i64_u32(text_stream*, int64_t, uint32_t);
+    void write_uint__ptr_u8_u64_u64_u32_u32(
+        text_stream*,
+        uint64_t,
+        uint64_t,
+        uint32_t,
+        uint32_t);
+}
+
 text_stream& text_stream::operator<<(const char* s)
 {
-    if(!s)
-        s = "(null)";
-    while(*s)
-        put(*s++);
+    write_text__ptr_u8_str8(this, s ? s : "(null)");
     return *this;
 }
 
@@ -17,21 +27,15 @@ text_stream& text_stream::operator<<(bool b)
     return *this << (b ? "true" : "false");
 }
 
-text_stream& text_stream::operator<<(long v)
+text_stream& text_stream::operator<<(long value)
 {
-    uint64_t magnitude = static_cast<uint64_t>(v);
-    if(v < 0)
-    {
-        put('-');
-        magnitude = 0 - magnitude;
-    }
-    put_uint(magnitude, 10, 0, ' ');
+    write_int__ptr_u8_i64(this, value);
     return *this;
 }
 
-text_stream& text_stream::operator<<(unsigned long v)
+text_stream& text_stream::operator<<(unsigned long value)
 {
-    put_uint(v, 10, 0, ' ');
+    put_uint(value, 10, 0, ' ');
     return *this;
 }
 
@@ -49,39 +53,22 @@ text_stream& text_stream::operator<<(hex_fmt h)
 
 text_stream& text_stream::operator<<(fixed_fmt f)
 {
-    uint64_t scale = 1;
-    for(uint8_t i = 0; i < f.decimals; ++i)
-        scale *= 10;
-    uint64_t magnitude = static_cast<uint64_t>(f.value);
-    if(f.value < 0)
-    {
-        put('-');
-        magnitude = 0 - magnitude;
-    }
-    put_uint(magnitude / scale, 10, 0, ' ');
-    if(f.decimals > 0)
-    {
-        put('.');
-        put_uint(magnitude % scale, 10, f.decimals, '0');
-    }
+    write_fixed__ptr_u8_i64_u32(this, f.value, f.decimals);
     return *this;
 }
 
-void text_stream::put_uint(uint64_t v, unsigned base, uint8_t width, char pad)
+void text_stream::put_uint(
+    uint64_t value,
+    unsigned base,
+    uint8_t width,
+    char pad)
 {
-    char buf[24];
-    unsigned i = 0;
-    do
-    {
-        const auto digit = static_cast<unsigned>(v % base);
-        buf[i++] =
-            static_cast<char>(digit < 10 ? '0' + digit : 'a' + digit - 10);
-        v /= base;
-    } while(v != 0);
-    while(i < width && i < sizeof(buf))
-        buf[i++] = pad;
-    while(i != 0)
-        put(buf[--i]);
+    write_uint__ptr_u8_u64_u64_u32_u32(
+        this,
+        value,
+        base,
+        width,
+        static_cast<uint8_t>(pad));
 }
 
 void buffer_stream::put(char c)

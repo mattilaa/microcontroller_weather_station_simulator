@@ -157,45 +157,52 @@ private:
     int32_t cloudiness() const; // low + middle cloud now, per mille
     void update_conditions();
 
+    // State is accessed by src/mlang/weather_model.mla through the ABI adapter.
     const weather_scenario* _scenario = &SCENARIOS[0];
-    uint64_t _scenario_start = START_MINUTE * 60; // simulated seconds
-    uint64_t _sim_seconds = START_MINUTE * 60;
-    uint32_t _unstepped_seconds = 0; // less than a step since the last one
+    [[maybe_unused]] uint64_t _scenario_start =
+        START_MINUTE * 60; // simulated seconds
+    [[maybe_unused]] uint64_t _sim_seconds = START_MINUTE * 60;
+    [[maybe_unused]] uint32_t _unstepped_seconds =
+        0; // less than a step since the last one
     util::xorshift32 _rng{
         0x0bad'f00du}; // seed chosen for a varied first few days
 
     // Random processes, in public units times FINE.
-    int32_t _front = 0;                   // temperature offset, 0.01 degC
-    int32_t _moisture = 0;                // humidity offset, 0.01 %RH
-    int32_t _cloud_trend = 350 * FINE;    // where cloudiness is heading
-    int32_t _cloud = 350 * FINE;          // cloudiness, per mille
-    int32_t _wetness = 0;                 // per mille: builds in rain
-    int32_t _sustained_wind = 300 * FINE; // 0.01 m/s, mean-reverting
-    int32_t _gust = 0;                    // 0.01 m/s, decays every step
-    int32_t _prevailing = 2250 * FINE;    // 0.1 degrees (starts SW)
-    int32_t _vane_swing = 0;              // degrees (not FINE)
+    [[maybe_unused]] int32_t _front = 0;    // temperature offset, 0.01 degC
+    [[maybe_unused]] int32_t _moisture = 0; // humidity offset, 0.01 %RH
+    [[maybe_unused]] int32_t _cloud_trend =
+        350 * FINE;                               // where cloudiness is heading
+    [[maybe_unused]] int32_t _cloud = 350 * FINE; // cloudiness, per mille
+    [[maybe_unused]] int32_t _wetness = 0;        // per mille: builds in rain
+    [[maybe_unused]] int32_t _sustained_wind =
+        300 * FINE;                     // 0.01 m/s, mean-reverting
+    [[maybe_unused]] int32_t _gust = 0; // 0.01 m/s, decays every step
+    [[maybe_unused]] int32_t _prevailing =
+        2250 * FINE;                          // 0.1 degrees (starts SW)
+    [[maybe_unused]] int32_t _vane_swing = 0; // degrees (not FINE)
     // High cloud wanders independently. It has its own generator so adding
     // it didn't change the rest of the weather's random sequence.
     util::xorshift32 _cirrus_rng{0xc1'7505u};
-    int32_t _cirrus = 250 * FINE; // per mille
+    [[maybe_unused]] int32_t _cirrus = 250 * FINE; // per mille
     // Centre levels of the high and middle layers (hPa * FINE). They use
     // their own generator too, so the cirrus amount sequence is unchanged.
     util::xorshift32 _level_rng{0x1e'7e15u};
-    int32_t _cirrus_level = 270 * FINE;
-    int32_t _altostratus_level = 580 * FINE;
+    [[maybe_unused]] int32_t _cirrus_level = 270 * FINE;
+    [[maybe_unused]] int32_t _altostratus_level = 580 * FINE;
     // Surface pressure (0.1 hPa * FINE), with its own generator as well.
     util::xorshift32 _pressure_rng{0xba'0e7e5u};
-    int32_t _pressure = STANDARD_PRESSURE * FINE;
+    [[maybe_unused]] int32_t _pressure = STANDARD_PRESSURE * FINE;
     // Convective cells: how much of the afternoon build-up is towering right
     // now (0..1000 * FINE). Cells grow and collapse within the hour, so
     // thunderstorms come in bursts. Own generator again.
     util::xorshift32 _cell_rng{0xce'115eedu};
-    int32_t _cell = 450 * FINE;
+    [[maybe_unused]] int32_t _cell = 450 * FINE;
     // Gust factor: peak (3-second) wind over the wind of the moment,
     // 1100..1400 per mille, varying minute by minute. Own generator.
     util::xorshift32 _gust_rng{0x6057'f00du};
-    int32_t _gust_factor = 1250;
-    int64_t _rain_fallen = 0; // since take_rain(), in 0.01 mm * 1 s / 1 h
+    [[maybe_unused]] int32_t _gust_factor = 1250;
+    [[maybe_unused]] int64_t _rain_fallen =
+        0; // since take_rain(), in 0.01 mm * 1 s / 1 h
 
     weather_conditions _conditions{};
 };

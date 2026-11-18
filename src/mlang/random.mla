@@ -1,0 +1,25 @@
+// xorshift32 and bounded Irwin-Hall noise, matching the original seeds/sequence.
+pub fn next(state: &mut u32) -> u32 {
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+pub fn below(state: &mut u32, n: u32) -> u32 {
+    return next(&mut state) % n;
+}
+
+pub fn between(state: &mut u32, lo: i32, hi: i32) -> i32 {
+    return lo + (i32(below(&mut state, u32(hi - lo + 1))));
+}
+
+pub fn gaussian(state: &mut u32, sigma: i32) -> i32 {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < 4 {
+        sum += i32(below(&mut state, 1000));
+        i += 1;
+    }
+    return (sum - 1998) * sigma / 577;
+}

@@ -35,6 +35,7 @@ robot --pythonpath tests/libraries --variable FIRMWARE:build-release/firmware.el
 Robot test notes:
 - Two or more spaces separate arguments in `.robot` files, so write `{2}` in regexes instead of literal double spaces.
 - `qemu_firmware.py` reads output through a cursor: `Wait For Output` only sees text after the previous match, and `Collect Output` moves the cursor to the end.
+- UART output can arrive mid-line. Write `Wait For Output` patterns that match the complete text you'll use; never end them in an open `.*` and then parse the match, because it can match half a line (this flaked on a slow CI runner).
 - QEMU is always run with `-nic none`: the default PCI NIC (virtio-net-pci) needs `efi-virtio.rom`, which CI's minimal QEMU install doesn't ship (QEMU exits at startup). Networks are added explicitly as `virtio-net-device` (MMIO, no ROM).
 - `Boot Firmware` / `Start Firmware With Network` attach a NIC wired to `network_peer.py`, using QEMU's `dgram` netdev: each Ethernet frame is one UDP datagram on 127.0.0.1 between QEMU and the library. The peer is 02:00:00:00:00:02 / 10.0.2.2, the firmware is 52:54:00:12:34:56 / 10.0.2.15. Tear down with `Shut Down Firmware`, which also closes the peer.
 - Peer keywords check every reply field, checksums included. `No Reply Should Arrive` is the negative check for dropped traffic.

@@ -35,7 +35,8 @@ First Average Equals First Reading
     [Documentation]    With one sample in each window, every average equals its reading.
     Wait For Output    ms\\] 06:00 temp    # the first reading, at boot
     Press Key And Expect    w    --- weather
-    ${temperature}=    Wait For Output    temperature: .*
+    # Match the whole line: a pattern ending in .* can match a half-received line.
+    ${temperature}=    Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(avg -?\\d+\\.\\d\\d C\\)
     ${values}=    Find All    (-?\\d+\\.\\d\\d) C    ${temperature}
     Should Be Equal    ${values}[0]    ${values}[1]
 

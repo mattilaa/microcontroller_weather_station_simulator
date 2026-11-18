@@ -33,21 +33,24 @@ class QemuFirmware:
 
     # ---- lifecycle ----------------------------------------------------------
 
-    def start_firmware(self, firmware=None):
-        """Boot the firmware in QEMU. Stops any instance already running."""
+    def start_firmware(self, *extra_args):
+        """Boot the firmware in QEMU, appending `extra_args` to the command
+        line (e.g. the network arguments from `Open Network Peer`). Stops any
+        instance already running."""
         self.stop_firmware()
-        image = firmware or self._firmware
         command = [
             self._qemu,
             "-M", "virt",
             "-cpu", "cortex-a53",
             "-m", "128M",
             "-nographic",
-            # No network card: the default virtio NIC needs efi-virtio.rom,
-            # which minimal QEMU installs (e.g. CI) don't ship.
+            # Drop the default PCI NIC: it needs efi-virtio.rom, which
+            # minimal QEMU installs (e.g. CI) don't ship. Tests that want a
+            # network add a virtio-net-device through extra_args.
             "-nic", "none",
             "-semihosting",
-            "-kernel", image,
+            "-kernel", self._firmware,
+            *extra_args,
         ]
         logger.info("Starting: " + " ".join(command))
         self._output = ""

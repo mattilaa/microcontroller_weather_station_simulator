@@ -5,12 +5,11 @@ Documentation       The scheduler runs each periodic task at its configured rate
 Resource            resources/firmware.resource
 
 Test Setup          Boot Firmware
-Test Teardown       Stop Firmware
+Test Teardown       Shut Down Firmware
 
 
 *** Variables ***
 ${LED_LINE}         \\[\\s*(\\d+) ms\\] LED (?:ON|OFF)
-${TEMP_LINE}        \\[\\s*(\\d+) ms\\] temp = (\\d+\\.\\d\\d) C \\(avg (\\d+\\.\\d\\d) C\\)
 
 
 *** Test Cases ***
@@ -26,26 +25,15 @@ Heartbeat Toggles LED Every 500 ms
     ${timestamps}=    Find All    ${LED_LINE}    ${output}
     Differences Should Be Within    ${timestamps}    450    650
 
-Sensor Reports Temperature Every Second
+Weather Sensors Are Read Every Second
     ${output}=    Collect Output    3.2s
-    ${timestamps}=    Find All    \\[\\s*(\\d+) ms\\] temp =    ${output}
+    ${timestamps}=    Find All    \\[\\s*(\\d+) ms\\] \\d\\d:\\d\\d temp    ${output}
     ${count}=    Get Length    ${timestamps}
-    Should Be True    ${count} >= 3    msg=Only ${count} temperature readings in 3.2 s
+    Should Be True    ${count} >= 3    msg=Only ${count} readings in 3.2 s
     Differences Should Be Within    ${timestamps}    900    1200
 
-Temperature Stays In Simulated Range
+Simulated Clock Advances Ten Minutes Per Reading
     ${output}=    Collect Output    4.2s
-    ${readings}=    Find All    ${TEMP_LINE}    ${output}
-    Should Not Be Empty    ${readings}
-    FOR    ${reading}    IN    @{readings}
-        ${raw}=    Set Variable    ${reading}[1]
-        ${avg}=    Set Variable    ${reading}[2]
-        Should Be True    15.0 <= ${raw} <= 35.0    msg=Raw temperature ${raw} C out of range
-        Should Be True    15.0 <= ${avg} <= 35.0    msg=Average ${avg} C out of range
-    END
-
-First Average Equals First Reading
-    [Documentation]    With a single sample in the window, the moving average is that sample.
-    ${line}=    Wait For Output    temp = \\d+\\.\\d\\d C \\(avg \\d+\\.\\d\\d C\\)
-    ${values}=    Find All    (\\d+\\.\\d\\d) C    ${line}
-    Should Be Equal    ${values}[0]    ${values}[1]
+    ${readings}=    Find All    ${READING}    ${output}
+    ${minutes}=    Evaluate    [int(r[0]) * 60 + int(r[1]) for r in $readings]
+    Differences Should Be Within    ${minutes}    9    13

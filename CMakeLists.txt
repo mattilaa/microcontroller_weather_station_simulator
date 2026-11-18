@@ -25,10 +25,20 @@ add_executable(firmware
     src/app/console.cpp
     src/app/scheduler.cpp
     src/app/tasks.cpp
+    src/app/units.cpp
+    src/app/weather_model.cpp
+    src/app/weather_service.cpp
+    src/app/weather_station.cpp
     src/hal/pl011.cpp
     src/hal/generic_timer.cpp
     src/hal/semihosting.cpp
+    src/hal/virtio_mmio.cpp
+    src/hal/virtio_net.cpp
+    src/net/addresses.cpp
+    src/net/stack.cpp
     src/runtime/cxx_runtime.cpp
+    src/runtime/libc_support.cpp
+    src/util/text_stream.cpp
     src/util/static_tests.cpp   # compile-time tests only, emits no code
 )
 set_target_properties(firmware PROPERTIES SUFFIX ".elf")
@@ -48,6 +58,12 @@ target_compile_options(firmware PRIVATE
     -fno-asynchronous-unwind-tables
     # Keep the compiler from using FP/SIMD registers.
     -mgeneral-regs-only
+    # The MMU is off, so all memory is Device memory: unaligned accesses
+    # fault. Never let the compiler merge byte accesses into unaligned ones.
+    -mstrict-align
+    # GCC turns copy/fill loops into memcpy/memset calls, even in
+    # libc_support.cpp's own memcpy/memset; stop that.
+    $<$<CXX_COMPILER_ID:GNU>:-fno-tree-loop-distribute-patterns>
     # Let the linker drop unused code.
     -ffunction-sections
     -fdata-sections
@@ -74,7 +90,16 @@ add_custom_command(TARGET firmware POST_BUILD
 # ---- QEMU helpers ---------------------------------------------------------
 find_program(QEMU qemu-system-aarch64)
 if(QEMU)
-    set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -nic none -semihosting
+    # Network: virtio-net on QEMU's user-mode network. Host UDP port
+    # ${QEMU_UDP_PORT} is forwarded to the weather service (port 5000):
+    #   echo weather | nc -u -w1 127.0.0.1 5555
+    # -nic none drops the default PCI NIC (it needs efi-virtio.rom).
+    set(QEMU_UDP_PORT 5555 CACHE STRING "Host UDP port forwarded to the firmware")
+    set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -semihosting
+                  -nic none
+                  -global virtio-mmio.force-legacy=false
+                  -netdev user,id=net0,hostfwd=udp:127.0.0.1:${QEMU_UDP_PORT}-:5000
+                  -device virtio-net-device,netdev=net0
                   -kernel $<TARGET_FILE:firmware>)
 
     # cmake --build build --target run      (quit: press 'q', or Ctrl-A X)

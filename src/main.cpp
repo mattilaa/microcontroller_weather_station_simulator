@@ -8,13 +8,24 @@
 #include "app/console.hpp"
 #include "app/scheduler.hpp"
 #include "app/tasks.hpp"
+#include "app/weather_service.hpp"
+#include "app/weather_station.hpp"
 #include "hal/generic_timer.hpp"
 #include "hal/pl011.hpp"
+#include "hal/virtio_net.hpp"
+#include "net/stack.hpp"
 
 namespace
 {
 
 using namespace app;
+
+// Static addressing that matches QEMU's user-mode network (slirp) defaults.
+constexpr net::ipv4_config NETWORK_CONFIG{
+    .address = {{10, 0, 2, 15}},
+    .netmask = {{255, 255, 255, 0}},
+    .gateway = {{10, 0, 2, 2}},
+};
 
 extern scheduler
     task_scheduler; // defined below; console_task keeps a reference
@@ -23,20 +34,29 @@ constinit hal::generic_timer timer;
 constinit console serial_console{hal::uart0};
 constinit settings app_settings;
 constinit led status_led;
-constinit temperature_sensor temp_sensor;
+constinit weather_station station;
+
+constinit hal::virtio_net::dma_memory ethernet_memory{}; // .bss
+constinit hal::virtio_net ethernet{ethernet_memory};
+constinit weather_service weather_udp{station};
+constinit net::stack
+    ip_stack{ethernet, NETWORK_CONFIG, weather_udp, weather_service::PORT};
 
 constinit heartbeat_task heartbeat{status_led, serial_console, app_settings};
-constinit sensor_task sensor_reader{temp_sensor, serial_console, app_settings};
+constinit weather_task weather_reader{station, serial_console, app_settings};
+constinit network_task network{ethernet, ip_stack};
 constinit console_task command_shell{
     hal::uart0,
     serial_console,
     app_settings,
     status_led,
-    temp_sensor,
+    station,
+    ethernet,
+    ip_stack,
     task_scheduler};
 
 constinit task* const task_table[] =
-    {&heartbeat, &sensor_reader, &command_shell};
+    {&heartbeat, &weather_reader, &network, &command_shell};
 constinit scheduler task_scheduler{task_table};
 
 unsigned current_el()
@@ -58,6 +78,10 @@ extern "C" [[noreturn]] void main()
     serial_console << "\n=== bare-metal AArch64 C++ on QEMU virt ===\n"
                    << "running at EL" << current_el()
                    << ", no operating system\n";
+
+    if(ethernet.init() == hal::virtio_net::status::ready)
+        ip_stack.announce();
+    command_shell.print_network();
     command_shell.print_help();
 
     for(;;)

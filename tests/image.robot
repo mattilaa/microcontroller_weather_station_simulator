@@ -9,7 +9,7 @@ Resource            resources/firmware.resource
 *** Variables ***
 ${LOAD_ADDRESS}     0x40000000
 # Code + read-only data + initialized data. Raise deliberately if needed.
-${SIZE_BUDGET}      16384
+${SIZE_BUDGET}      32768
 
 
 *** Test Cases ***

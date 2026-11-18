@@ -20,6 +20,18 @@ public:
 
     virtual void run(uint64_t now_ms) = 0;
 
+    // Call run() if the task's deadline has passed, then schedule the next
+    // run one period later. Returns true if the task ran.
+    bool run_if_due(uint64_t now_ms)
+    {
+        if(now_ms < _next_run_ms)
+            return false;
+        _next_run_ms = now_ms + _period_ms;
+        ++_runs;
+        run(now_ms);
+        return true;
+    }
+
     const char* name() const
     {
         return _name;
@@ -38,11 +50,11 @@ public:
 protected:
     // Non-virtual and protected: tasks are never deleted through a task*,
     // so no virtual destructor (and no operator delete) is needed.
+    // Don't give task friends: GCC's -Wnon-virtual-dtor treats a protected
+    // destructor as accessible when the class has friends.
     ~task() = default;
 
 private:
-    friend class scheduler;
-
     const char* _name;
     uint32_t _period_ms;
     uint64_t _next_run_ms = 0;

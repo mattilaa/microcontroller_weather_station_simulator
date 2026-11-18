@@ -59,7 +59,7 @@ GCC details:
 - `-ffreestanding -nostdinc++ -nostdlib`: no libc or libc++. Only compiler-provided C headers (`<stdint.h>`, `<stddef.h>`, `<stdarg.h>`) are available. There's no `<type_traits>`, `<array>`, `<concepts>` etc., so write the needed bits yourself (see the `util::arithmetic` concept).
 - `operator new`/`delete` are deliberately undefined, so heap use is a link error. Don't add them to "fix" a link error; remove the allocation instead.
 - No `memcpy`/`memset` are provided. If the compiler starts emitting calls to them (e.g. large struct copies), the link fails.
-- Polymorphic bases (e.g. `app::task`) use a **protected non-virtual destructor**. A virtual destructor would pull in `operator delete`.
+- Polymorphic bases (e.g. `app::task`) use a **protected non-virtual destructor**. A virtual destructor would pull in `operator delete`. Don't give such classes `friend`s: GCC's `-Wnon-virtual-dtor` then counts the protected destructor as accessible and warns, and CI builds with `-Werror`.
 - Warnings include `-Wpedantic -Wconversion -Wshadow`. Keep the build free of warnings.
 
 ## Architecture
@@ -68,7 +68,7 @@ GCC details:
 
 **Static object graph:** `src/main.cpp` declares every object (`serial_console`, `status_led`, `temp_sensor`, the tasks, `task_table`, `task_scheduler`) as a `constinit` global in an anonymous namespace. They're wired together through constructor references, so `.init_array` stays empty. New globals should stay `constinit`, which means they need `constexpr` constructors. `command_shell` (a `console_task`) needs a reference to `task_scheduler`, which is defined later, hence the `extern scheduler task_scheduler;` forward declaration.
 
-**Main loop:** `task_scheduler.poll(timer.millis())` in a busy loop. `app::scheduler` holds a fixed `task* const` table; its template constructor works out the table size. Each `app::task` has a name and a period, and overrides `run(now_ms)`. Scheduling bookkeeping (`_next_run_ms`, `_runs`) is private to `task` and touched only by `scheduler` (as a friend). To add a task: subclass `task` in `src/app/tasks.*` (mark it `final`, give it a `constexpr` constructor), create a `constinit` instance in `main.cpp` and add it to `task_table`.
+**Main loop:** `task_scheduler.poll(timer.millis())` in a busy loop. `app::scheduler` holds a fixed `task* const` table; its template constructor works out the table size. Each `app::task` has a name and a period, and overrides `run(now_ms)`. Scheduling bookkeeping (`_next_run_ms`, `_runs`) is private to `task`; `scheduler` calls the public non-virtual `task::run_if_due()`, which updates it and calls `run()`. To add a task: subclass `task` in `src/app/tasks.*` (mark it `final`, give it a `constexpr` constructor), create a `constinit` instance in `main.cpp` and add it to `task_table`.
 
 **Layers:**
 - `hal::` is hardware access only. `reg32`/`bit_field<Shift,Width>`/`flag<Bit>` (`mmio.hpp`) are used to define registers; the PL011 driver shows the pattern. Peripheral base addresses are QEMU virt's (UART0 `0x09000000`, `hal::uart0`). Timing comes from polling the ARM generic timer; no interrupts or GIC are set up.

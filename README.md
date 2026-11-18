@@ -17,6 +17,20 @@ and built with CMake.
 | all globals are `constinit`         | built at compile time, so no constructors run before `main` |
 | virtual functions are fine          | `Task::run()` dispatches through a vtable; no RTTI needed   |
 
+Templates are encouraged: they are resolved entirely at compile time and need no
+runtime support. Just watch code size, because every distinct `<T, N>` combination
+generates its own copy of the code (check `firmware.map`).
+
+| Template                          | Where              | Shows                                             |
+|-----------------------------------|--------------------|---------------------------------------------------|
+| `util::RingBuffer<T, N>`          | `src/util/`        | fixed-capacity container, `static_assert` on `N`  |
+| `util::MovingAverage<T, N, Acc>`  | `src/util/`        | C++20 `concept` constraint, O(1) running sum      |
+| `hal::BitField<Shift, Width>`     | `src/hal/mmio.hpp` | register fields checked at compile time (used by the PL011 driver) |
+| `Scheduler(Task* const (&)[N])`   | `src/app/`         | array size deduced from the task table            |
+
+`src/util/static_tests.cpp` holds compile-time unit tests (`static_assert` on
+`constexpr` code). A failing test breaks the build, and the file adds 0 bytes to the image.
+
 `src/runtime/cxx_runtime.cpp` holds the little runtime support that's left:
 `__cxa_pure_virtual` (panics) and a loop that calls `.init_array` constructors. The
 startup code still runs that loop, in case you add a global that isn't `constinit`.
@@ -26,12 +40,12 @@ The main loop is a small cooperative scheduler:
 | Task        | Period  | What it does                                 |
 |-------------|---------|----------------------------------------------|
 | `heartbeat` | 500 ms  | Toggles a virtual LED                        |
-| `sensor`    | 1000 ms | Makes up a temperature reading with some noise |
+| `sensor`    | 1000 ms | Simulated temperature + moving average of the last 8 samples |
 | `console`   | 10 ms   | Checks the UART for single-key commands      |
 
 All tasks live in a fixed table; the `Scheduler` is given that table at compile time.
 
-Console commands: `h` help, `s` status, `v` toggle verbose output, `q` quit QEMU.
+Console commands: `h` help, `s` status, `d` dump temperature history, `v` toggle verbose output, `q` quit QEMU.
 
 ## Requirements
 
@@ -74,9 +88,12 @@ src/main.cpp                        static object graph + main loop
 src/app/scheduler.*                 Task base class (virtual run) + cooperative Scheduler
 src/app/tasks.*                     Led, TemperatureSensor, Heartbeat/Sensor/Console tasks
 src/app/console.*                   type-safe `console << ...` output (replaces printf)
-src/hal/mmio.hpp                    Reg32 memory-mapped register wrapper
+src/hal/mmio.hpp                    Reg32 register wrapper, BitField<Shift, Width>
 src/hal/pl011.*                     PL011 UART driver (0x09000000)
 src/hal/generic_timer.*             ARM generic timer (CNTPCT_EL0)
 src/hal/semihosting.*               semihosting SYS_EXIT so QEMU can quit
 src/runtime/cxx_runtime.cpp         __cxa_pure_virtual, global-constructor loop
+src/util/ring_buffer.hpp            RingBuffer<T, N> fixed-capacity FIFO
+src/util/moving_average.hpp         MovingAverage<T, N, Acc> + Arithmetic concept
+src/util/static_tests.cpp           compile-time unit tests
 ```

@@ -43,6 +43,7 @@ void TemperatureSensor::sample()
         static_cast<int32_t>(next_random() % 51) - 25; // +/- 0.25 C
     int32_t v = centi_c_ + delta;
     centi_c_ = v < min ? min : (v > max ? max : v);
+    filter_.add(centi_c_);
 }
 
 // ---- Tasks ------------------------------------------------------------------
@@ -59,7 +60,8 @@ void SensorTask::run(uint64_t now_ms)
 {
     sensor_.sample();
     if(settings_.verbose)
-        timestamp(out_, now_ms) << "temp = " << sensor_.value() << '\n';
+        timestamp(out_, now_ms) << "temp = " << sensor_.value() << " (avg "
+                                << sensor_.average() << ")\n";
 }
 
 void ConsoleTask::print_help()
@@ -67,6 +69,7 @@ void ConsoleTask::print_help()
     out_ << "Commands:\n"
             "  h  help\n"
             "  s  status\n"
+            "  d  dump temperature history\n"
             "  v  toggle verbose output\n"
             "  q  quit QEMU (semihosting)\n";
 }
@@ -75,10 +78,20 @@ void ConsoleTask::print_status(uint64_t now_ms)
 {
     out_ << "--- status @ " << now_ms << " ms ---\n"
          << "LED: " << (led_.is_on() ? "on" : "off")
-         << ", temp: " << sensor_.value() << '\n';
+         << ", temp: " << sensor_.value() << ", avg: " << sensor_.average()
+         << '\n';
     for(const Task* task : scheduler_)
         out_ << "  task " << task->name() << ": period " << task->period_ms()
              << " ms, runs " << task->runs() << '\n';
+}
+
+void ConsoleTask::print_history()
+{
+    const auto& history = sensor_.history();
+    out_ << "last " << history.size() << " of " << history.capacity()
+         << " samples (oldest first):\n";
+    for(size_t i = 0; i < history.size(); ++i)
+        out_ << "  " << CentiCelsius{history[i]} << '\n';
 }
 
 void ConsoleTask::run(uint64_t now_ms)
@@ -93,6 +106,9 @@ void ConsoleTask::run(uint64_t now_ms)
             break;
         case 's':
             print_status(now_ms);
+            break;
+        case 'd':
+            print_history();
             break;
         case 'v':
             settings_.verbose = !settings_.verbose;

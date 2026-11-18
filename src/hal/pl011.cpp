@@ -13,15 +13,15 @@ constexpr uintptr_t LCRH = 0x2C;
 constexpr uintptr_t CR = 0x30;
 constexpr uintptr_t IMSC = 0x38;
 
-constexpr uint32_t FR_RXFE = 1u << 4;
-constexpr uint32_t FR_TXFF = 1u << 5;
+using FR_RXFE = Flag<4>; // receive FIFO empty
+using FR_TXFF = Flag<5>; // transmit FIFO full
 
-constexpr uint32_t LCRH_FEN = 1u << 4;
-constexpr uint32_t LCRH_WLEN_8 = 3u << 5;
+using LCRH_FEN = Flag<4>;         // FIFO enable
+using LCRH_WLEN = BitField<5, 2>; // word length: 0 = 5 bits ... 3 = 8 bits
 
-constexpr uint32_t CR_UARTEN = 1u << 0;
-constexpr uint32_t CR_TXE = 1u << 8;
-constexpr uint32_t CR_RXE = 1u << 9;
+using CR_UARTEN = Flag<0>;
+using CR_TXE = Flag<8>;
+using CR_RXE = Flag<9>;
 } // namespace
 
 void Pl011::init() const
@@ -29,14 +29,14 @@ void Pl011::init() const
     reg(CR).write(0);    // disable while configuring
     reg(IBRD).write(13); // 115200 baud @ 24 MHz (QEMU ignores this)
     reg(FBRD).write(1);
-    reg(LCRH).write(LCRH_WLEN_8 | LCRH_FEN); // 8N1, FIFOs on
-    reg(IMSC).write(0);                      // polling mode
-    reg(CR).write(CR_UARTEN | CR_TXE | CR_RXE);
+    reg(LCRH).write(LCRH_WLEN::value<3>() | LCRH_FEN::mask); // 8N1, FIFOs on
+    reg(IMSC).write(0);                                      // polling mode
+    reg(CR).write(CR_UARTEN::mask | CR_TXE::mask | CR_RXE::mask);
 }
 
 void Pl011::put(char c) const
 {
-    while(reg(FR).test(FR_TXFF))
+    while(reg(FR).test(FR_TXFF::mask))
     {
     }
     reg(DR).write(static_cast<unsigned char>(c));
@@ -44,7 +44,7 @@ void Pl011::put(char c) const
 
 bool Pl011::try_get(char& c) const
 {
-    if(reg(FR).test(FR_RXFE))
+    if(reg(FR).test(FR_RXFE::mask))
         return false;
     c = static_cast<char>(reg(DR).read() & 0xFF);
     return true;

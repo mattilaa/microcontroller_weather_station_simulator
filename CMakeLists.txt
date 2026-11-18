@@ -27,6 +27,7 @@ add_executable(firmware
     src/hal/generic_timer.cpp
     src/hal/semihosting.cpp
     src/runtime/cxx_runtime.cpp
+    src/util/static_tests.cpp   # compile-time tests only, emits no code
 )
 set_target_properties(firmware PROPERTIES SUFFIX ".elf")
 target_include_directories(firmware PRIVATE src)

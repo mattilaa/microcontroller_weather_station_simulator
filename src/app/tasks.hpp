@@ -4,6 +4,7 @@
 
 #include "app/console.hpp"
 #include "app/scheduler.hpp"
+#include "util/moving_average.hpp"
 
 namespace app
 {
@@ -39,10 +40,14 @@ struct CentiCelsius
 
 Console& operator<<(Console& out, CentiCelsius t);
 
-// Simulated temperature sensor: random walk with xorshift32 noise.
+// Simulated temperature sensor: random walk with xorshift32 noise, smoothed
+// by a moving average over the last HISTORY samples.
 class TemperatureSensor
 {
 public:
+    static constexpr size_t HISTORY = 8;
+    using Filter = util::MovingAverage<int32_t, HISTORY, int64_t>;
+
     void sample();
 
     CentiCelsius value() const
@@ -50,11 +55,22 @@ public:
         return {centi_c_};
     }
 
+    CentiCelsius average() const
+    {
+        return {filter_.average()};
+    }
+
+    const util::RingBuffer<int32_t, HISTORY>& history() const
+    {
+        return filter_.samples();
+    }
+
 private:
     uint32_t next_random();
 
     int32_t centi_c_ = 2500;
     uint32_t rng_state_ = 0x1234'5678u;
+    Filter filter_;
 };
 
 class HeartbeatTask final : public Task
@@ -113,6 +129,7 @@ public:
 
 private:
     void print_status(uint64_t now_ms);
+    void print_history();
 
     const hal::Pl011& uart_;
     Console& out_;

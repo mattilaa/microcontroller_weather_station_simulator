@@ -25,9 +25,9 @@ jobs:
     name: Lint
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -77,7 +77,7 @@ jobs:
             packages: clang lld llvm
             cmake_args: -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-clang-aarch64.cmake
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install toolchain
         run: |
@@ -103,7 +103,7 @@ jobs:
         run: cmake --build build
 
       - name: Upload firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ matrix.host }}-${{ matrix.toolchain }}-${{ matrix.build_type }}
           path: |
@@ -128,7 +128,7 @@ jobs:
           - host: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install QEMU
         run: |
@@ -136,7 +136,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends qemu-system-arm
           qemu-system-aarch64 --version
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -146,7 +146,7 @@ jobs:
         run: pip install -r tests/requirements.txt
 
       - name: Download firmware
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: firmware-${{ matrix.host }}-${{ matrix.toolchain }}-${{ matrix.build_type }}
           path: build
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: robot-results-${{ matrix.host }}-${{ matrix.toolchain }}-${{ matrix.build_type }}
           path: results/

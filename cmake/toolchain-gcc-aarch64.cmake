@@ -11,6 +11,9 @@ set(CMAKE_SYSTEM_NAME      Generic)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
 
 set(CROSS_PREFIX aarch64-none-elf- CACHE STRING "GNU cross toolchain prefix")
+# CMake re-runs this file inside try_compile() scratch projects while it checks
+# the compiler; forward CROSS_PREFIX there, or it falls back to the default.
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES CROSS_PREFIX)
 
 find_program(CMAKE_CXX_COMPILER ${CROSS_PREFIX}g++     REQUIRED)
 find_program(CMAKE_ASM_COMPILER ${CROSS_PREFIX}gcc     REQUIRED)

@@ -16,40 +16,43 @@ Status Command Shows State And All Tasks
     Wait For Output    temp
     Press Key And Expect    s    --- status @ \\d+ ms ---
     Wait For Output    weather: ${READING}
-    Wait For Output    log: \\d+ readings, next sequence \\d+
+    Wait For Output    speed: 600x
+    Wait For Output    log: \\d+ records, next sequence \\d+
     Wait For Output    network: up
     Wait For Output    task weather: period 1000 ms, runs \\d+
     Wait For Output    task network: period 5 ms, runs \\d+
     Wait For Output    task console: period 10 ms, runs \\d+
 
-Weather Report Shows Latest Readings And Averages
+Weather Report Shows Latest Sample And Interval Means
     Wait For Output    temp
-    Press Key And Expect    w    --- weather, day 1 \\d\\d:\\d\\d ---
-    Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(avg -?\\d+\\.\\d\\d C\\)
-    Wait For Output    humidity: +\\d+\\.\\d\\d %RH \\(avg \\d+\\.\\d\\d %RH\\)
-    Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(avg \\d+\\.\\d\\d m/s\\)
-    Wait For Output    wind direction: +\\d+ deg [NESW]+ \\(avg \\d+ deg [NESW]+\\)
-    Wait For Output    rain: +\\d+\\.\\d\\d mm \\(today \\d+\\.\\d\\d mm\\)
+    Press Key And Expect    w    --- weather, day 1 \\d\\d:\\d\\d:\\d\\d, speed 600x ---
+    Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(10-min mean -?\\d+\\.\\d\\d C\\)
+    Wait For Output    humidity: +\\d+\\.\\d\\d %RH \\(10-min mean \\d+\\.\\d\\d %RH\\)
+    Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(10-min mean \\d+\\.\\d\\d m/s\\)
+    Wait For Output    wind direction: +\\d+ deg [NESW]+ \\(10-min mean \\d+ deg [NESW]+\\)
+    Wait For Output    rain: +\\d+\\.\\d\\d mm in this interval \\(today \\d+\\.\\d\\d mm\\)
 
-First Average Equals First Reading
-    [Documentation]    With one sample in each window, every average equals its reading.
-    Wait For Output    ms\\] 06:00 temp    # the first reading, at boot
+Interval Mean Starts At The First Sample
+    [Documentation]    Right after boot the interval holds one sample, so its mean equals it.
+    Wait For Output    ms\\] 06:00:00 temp    # the first sample, at boot
     Press Key And Expect    w    --- weather
     # Match the whole line: a pattern ending in .* can match a half-received line.
-    ${temperature}=    Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(avg -?\\d+\\.\\d\\d C\\)
+    ${temperature}=    Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(10-min mean -?\\d+\\.\\d\\d C\\)
     ${values}=    Find All    (-?\\d+\\.\\d\\d) C    ${temperature}
     Should Be Equal    ${values}[0]    ${values}[1]
 
-History Command Dumps Collected Readings
+History Command Dumps Collected Records
+    # Records end at 06:10 and 06:20: wait for the third sample line.
     Wait For Output    temp
     Wait For Output    temp    timeout=3s
-    Press Key And Expect    d    last [2-8] readings \\(oldest first\\):
+    Wait For Output    temp    timeout=3s
+    Press Key And Expect    d    last [2-8] 10-minute records \\(oldest first\\):
     Wait For Output    \\n {2}${READING}\\n {2}${READING}
 
 History Shows At Most 8 Readings
     [Documentation]    After more than 8 sensor periods the dump is capped at 8 readings.
     Collect Output    9.5s
-    Press Key And Expect    d    last 8 readings
+    Press Key And Expect    d    last 8 10-minute records
 
 Network Command Shows Address And Counters
     Ping Firmware

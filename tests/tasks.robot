@@ -11,7 +11,7 @@ Test Teardown       Shut Down Firmware
 *** Test Cases ***
 Weather Sensors Are Read Every Second
     ${output}=    Collect Output    3.2s
-    ${timestamps}=    Find All    \\[\\s*(\\d+) ms\\] \\d\\d:\\d\\d temp    ${output}
+    ${timestamps}=    Find All    \\[\\s*(\\d+) ms\\] \\d\\d:\\d\\d:\\d\\d temp    ${output}
     ${count}=    Get Length    ${timestamps}
     Should Be True    ${count} >= 3    msg=Only ${count} readings in 3.2 s
     Differences Should Be Within    ${timestamps}    900    1200

@@ -27,7 +27,22 @@ Demo Imports A Simulated Day And Plots It
     Should Be Equal As Integers    ${result.rc}    0    msg=${result.stdout}
     Should Contain    ${result.stdout}    Imported
     ${rows}=    Count CSV Rows    ${csv}
-    Should Be True    ${rows} >= 145    msg=Only ${rows} readings imported
+    Should Be True    ${rows} >= 144    msg=Only ${rows} records for one simulated day
+    PNG File Should Be Valid    ${png}
+
+Record Collects Live Measurements At A Chosen Speed
+    [Documentation]    Six simulated hours at 3600x take about six real seconds.
+    ${csv}=    Set Variable    ${OUTPUT DIR}/record_weather.csv
+    ${png}=    Set Variable    ${OUTPUT DIR}/record_weather.png
+    ${result}=    Run Process    ${PYTHON}    ${TOOL}    record
+    ...    --firmware    ${FIRMWARE}    --qemu    ${QEMU}    --speed    3600
+    ...    --hours    6    --interval    1    --csv    ${csv}    --out    ${png}
+    ...    timeout=120s    stderr=STDOUT
+    Log    ${result.stdout}
+    Should Be Equal As Integers    ${result.rc}    0    msg=${result.stdout}
+    Should Contain    ${result.stdout}    Recording at 3600x
+    ${rows}=    Count CSV Rows    ${csv}
+    Should Be True    ${rows} >= 36    msg=Only ${rows} records in six simulated hours
     PNG File Should Be Valid    ${png}
 
 Plot Works On An Imported CSV

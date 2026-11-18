@@ -9,10 +9,11 @@ namespace app
 // UDP text protocol on the weather station's service port. One command per
 // datagram, one reply datagram:
 //
-//   weather          -> {"day":1,"time":"06:10","temperature":12.34,...}
+//   weather          -> {"day":1,"time":"06:10:05","temperature":12.34,...}
 //   time HH:MM       -> "ok time HH:MM"   (jump the simulated clock)
 //   log [sequence]   -> one page of logged readings as CSV, from `sequence`
-//   advance MINUTES  -> fast-forward the simulation, logging every reading
+//   advance MINUTES  -> fast-forward the simulation, logging the records
+//   speed [N]        -> show / set the speed (simulated seconds per second)
 //   ping             -> "pong"
 //   help           -> list of commands
 //   anything else  -> "error: unknown command"

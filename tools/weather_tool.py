@@ -1,18 +1,28 @@
 #!/usr/bin/env python3
 """Import weather data from the firmware and plot it.
 
-The firmware logs every reading (one per 10 simulated minutes) and serves the
-log over its UDP service (port 5000 in the guest; the CMake `run` target
-forwards host port 5555 to it).
+The firmware samples its sensors every second and logs one record per 10
+simulated minutes (means of the samples, and the rain in the interval). It
+serves that log over its UDP service (port 5000 in the guest; the CMake `run`
+target forwards host port 5555 to it). Simulated time runs at real time by
+default; the speed switch makes it faster (600 = ten simulated minutes per
+second, 3600 = an hour per second).
 
-    # 1. Start the firmware:      cmake --build build --target run
-    # 2. Import its sensor data:  python tools/weather_tool.py fetch --out weather.csv
-    # 3. Plot it:                 python tools/weather_tool.py plot weather.csv --out weather.png
+    # Record live: own QEMU, collect records as they are measured, keep
+    # updating the chart (Ctrl-C stops). 48 simulated hours at 3600x take
+    # 48 seconds; at 1x (real time) they take 48 hours.
+    python tools/weather_tool.py record --speed 3600 --hours 48
+    python tools/weather_tool.py record --speed 600 --live      # live window
 
-    # Or all in one, with its own QEMU and a fast-forwarded simulated day:
+    # Against an already running firmware (cmake --build build --target run):
+    python tools/weather_tool.py record --port 5555
+    python tools/weather_tool.py fetch --out weather.csv        # one import
+    python tools/weather_tool.py plot weather.csv --out weather.png
+
+    # Instant: fast-forward a simulated day without waiting at all.
     python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 1440
 
-`fetch` appends only readings that aren't in the CSV yet, so it can be run
+`fetch` appends only records that aren't in the CSV yet, so it can be run
 repeatedly. `--advance MINUTES` fast-forwards the simulation first.
 
 The chart follows the Finnish Meteorological Institute's daily forecast chart:
@@ -26,6 +36,7 @@ import csv
 import datetime
 import math
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -98,7 +109,8 @@ def fetch(client, out_path, advance=None):
         print(client.command(f"advance {advance}").strip())
     last = last_sequence_in(out_path)
     start = 0 if last is None else last + 1
-    new_file = last is None
+    # A file can exist with only its header (no records yet at real time).
+    new_file = not os.path.exists(out_path) or os.path.getsize(out_path) == 0
     added = 0
     with open(out_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMNS)
@@ -144,12 +156,16 @@ def dew_point(temperature, humidity):
     return b * gamma / (a - gamma)
 
 
+RECORD_MINUTES = 10
+
+
 def hourly(readings):
-    """Group readings into clock hours: precipitation sum, mean wind speed and
-    vector-averaged wind direction."""
+    """Group 10-minute records into clock hours: precipitation sum, mean wind
+    speed and vector-averaged wind direction. A record's time is the END of
+    its interval, so group by the interval's start."""
     hours = {}
     for r in readings:
-        key = r["when"].replace(minute=0)
+        key = (r["when"] - datetime.timedelta(minutes=RECORD_MINUTES)).replace(minute=0)
         h = hours.setdefault(key, {"rain": 0.0, "speeds": [], "u": 0.0, "v": 0.0})
         h["rain"] += r["rain"]
         h["speeds"].append(r["wind_speed"])
@@ -193,13 +209,25 @@ def nice_temperature_range(values, intervals_min=4):
 
 
 def plot(readings, out_path, hours=24, title=None):
+    """Draw the chart into a PNG file."""
     import matplotlib
 
     matplotlib.use("Agg")
-    import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(13, 7.2))
+    draw(fig, readings, hours, title)
+    fig.savefig(out_path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+
+
+def draw(fig, readings, hours=24, title=None):
+    """Draw the chart into an (empty or reused) matplotlib figure."""
+    import matplotlib
+    import matplotlib.dates as mdates
     from matplotlib import transforms
 
+    fig.clear()
     if not readings:
         raise ValueError("No readings to plot")
     end = readings[-1]["when"]
@@ -213,12 +241,10 @@ def plot(readings, out_path, hours=24, title=None):
     temperatures = [r["temperature"] for r in readings]
     dew_points = [dew_point(r["temperature"], r["humidity"]) for r in readings]
 
-    fig, (ax_t, ax_w) = plt.subplots(
-        2, 1, figsize=(13, 7.2), sharex=True, gridspec_kw={"height_ratios": [3.2, 1.3], "hspace": 0.12}
-    )
+    ax_t, ax_w = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [3.2, 1.3], "hspace": 0.12})
     fig.patch.set_facecolor("white")
-    x_begin = begin.replace(minute=0)
-    x_end = (end + datetime.timedelta(minutes=59)).replace(minute=0)
+    x_begin = (begin - datetime.timedelta(minutes=RECORD_MINUTES)).replace(minute=0)
+    x_end = max((end + datetime.timedelta(minutes=59)).replace(minute=0), x_begin + datetime.timedelta(hours=1))
 
     # -- temperature panel ---------------------------------------------------
     t_low, t_high = nice_temperature_range(temperatures + dew_points)
@@ -281,10 +307,11 @@ def plot(readings, out_path, hours=24, title=None):
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
 
     # Hourly arrows pointing where the wind blows to (FMI style), with the
-    # hourly mean speed underneath.
+    # hourly mean speed underneath. (With many hours, every other one.)
     row = transforms.blended_transform_factory(ax_w.transData, ax_w.transAxes)
     arrow_points = 9
-    for h in hour_data:
+    arrow_every = 1 if len(hour_data) <= 50 else 2 if len(hour_data) <= 100 else 3
+    for h in hour_data[::arrow_every]:
         # Custom transforms don't convert datetimes: use matplotlib date numbers.
         center = mdates.date2num(h["start"] + datetime.timedelta(minutes=30))
         to_direction = math.radians(h["wind_direction"] + 180)
@@ -323,9 +350,6 @@ def plot(readings, out_path, hours=24, title=None):
         ax.spines["bottom"].set_color("#aaaaaa")
         ax.tick_params(colors="#444444", labelsize=11, length=0)
 
-    fig.savefig(out_path, dpi=110, bbox_inches="tight")
-    plt.close(fig)
-
 
 # ---- demo: run the firmware in QEMU --------------------------------------------
 
@@ -336,7 +360,9 @@ def free_udp_port():
         return s.getsockname()[1]
 
 
-def start_qemu(qemu, firmware, host_port):
+def start_qemu(qemu, firmware, host_port, speed=None):
+    """Run the firmware with its UDP service forwarded to `host_port`. `speed`
+    sets the simulation speed switch (QEMU -fw_cfg opt/weather/speed)."""
     command = [
         qemu, "-M", "virt", "-cpu", "cortex-a53", "-m", "128M",
         "-nographic", "-semihosting", "-nic", "none",
@@ -345,7 +371,60 @@ def start_qemu(qemu, firmware, host_port):
         "-device", "virtio-net-device,netdev=net0",
         "-kernel", firmware,
     ]
+    if speed:
+        command += ["-fw_cfg", f"name=opt/weather/speed,string={speed}"]
     return subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+
+# ---- record: collect live measurements and keep the chart up to date ---------
+
+
+def record(client, csv_path, out_path, hours, interval, plot_hours, live, title):
+    """Import new records every `interval` real seconds and redraw the chart,
+    until `hours` simulated hours have been recorded (0 = until Ctrl-C or the
+    live window is closed)."""
+    figure = None
+    if live:
+        import matplotlib.pyplot as plt
+
+        plt.ion()
+        figure = plt.figure(figsize=(13, 7.2))
+    speed = client.command("speed").split()[-1]
+    print(f"Recording at {speed}x into {csv_path}"
+          + (f" for {hours} simulated hours" if hours else " (Ctrl-C stops)"))
+    if speed == "1":
+        print("Real time: the station logs a record every 10 minutes.")
+    recorded = 0
+    try:
+        while True:
+            added = fetch(client, csv_path)
+            recorded += added
+            readings = load(csv_path)
+            if added and readings:
+                last = readings[-1]
+                print(f"  day {last['day']} {last['when']:%H:%M}  {last['temperature']:5.1f} C  "
+                      f"{last['wind_speed']:4.1f} m/s  rain {last['rain']:.1f} mm   ({len(readings)} records)")
+                if live:
+                    draw(figure, readings, plot_hours, title)
+                    figure.canvas.draw_idle()
+                else:
+                    plot(readings, out_path, plot_hours, title)
+            if hours and recorded >= hours * 60 // RECORD_MINUTES:
+                break
+            if live:
+                import matplotlib.pyplot as plt
+
+                if not plt.fignum_exists(figure.number):
+                    break  # window closed
+                plt.pause(interval)
+            else:
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        print("Stopped.")
+    readings = load(csv_path)
+    if readings:
+        plot(readings, out_path, plot_hours, title)
+        print(f"Wrote {out_path} ({len(readings)} records)")
 
 
 # ---- command line --------------------------------------------------------------
@@ -366,6 +445,18 @@ def main(argv=None):
     p_plot.add_argument("--out", default="weather.png")
     p_plot.add_argument("--hours", type=int, default=24, help="plot the last N hours (0 = all)")
 
+    p_rec = sub.add_parser("record", help="collect live measurements and keep the chart up to date")
+    p_rec.add_argument("--speed", type=int, help="simulation speed: 1 = real time (default), up to 3600")
+    p_rec.add_argument("--hours", type=int, default=0, help="simulated hours to record (0 = until Ctrl-C)")
+    p_rec.add_argument("--interval", type=float, default=2.0, help="real seconds between imports")
+    p_rec.add_argument("--port", type=int, help="use an already running firmware on this host UDP port")
+    p_rec.add_argument("--firmware", default="build/firmware.elf")
+    p_rec.add_argument("--qemu", default="qemu-system-aarch64")
+    p_rec.add_argument("--csv", default="weather.csv")
+    p_rec.add_argument("--out", default="weather.png")
+    p_rec.add_argument("--plot-hours", type=int, default=48, help="chart the last N hours (0 = all)")
+    p_rec.add_argument("--live", action="store_true", help="show a live chart window as well")
+
     p_demo = sub.add_parser("demo", help="start QEMU, fast-forward, import and plot")
     p_demo.add_argument("--firmware", default="build/firmware.elf")
     p_demo.add_argument("--qemu", default="qemu-system-aarch64")
@@ -382,6 +473,30 @@ def main(argv=None):
     elif args.command == "plot":
         plot(load(args.csv), args.out, args.hours, title=os.path.basename(args.csv))
         print(f"Wrote {args.out}")
+    elif args.command == "record":
+        # Stop cleanly on `kill` (SIGTERM) as well as Ctrl-C: write the final
+        # chart and shut down QEMU.
+        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
+        qemu = None
+        if args.port:
+            client = WeatherClient(port=args.port)
+            client.wait_until_ready()
+            if args.speed:
+                print(client.command(f"speed {args.speed}").strip())
+        else:
+            if os.path.exists(args.csv):
+                os.remove(args.csv)  # a fresh QEMU starts a fresh log
+            port = free_udp_port()
+            qemu = start_qemu(args.qemu, args.firmware, port, args.speed)
+            client = WeatherClient(port=port)
+            client.wait_until_ready()
+        try:
+            record(client, args.csv, args.out, args.hours, args.interval, args.plot_hours, args.live,
+                   title=f"simulated weather station, {client.command('speed').split()[-1]}x")
+        finally:
+            if qemu:
+                qemu.kill()
+                qemu.wait()
     elif args.command == "demo":
         if os.path.exists(args.csv):
             os.remove(args.csv)  # a fresh QEMU starts a fresh log

@@ -41,7 +41,7 @@ Answers UDP Ping
 
 Lists UDP Commands
     ${reply}=    Send UDP Command    help
-    Should Be Equal    ${reply}    commands: weather, time HH:MM, log [sequence], advance <minutes>, ping, help
+    Should Be Equal    ${reply}    commands: weather, time HH:MM, log [sequence], advance <minutes>, speed [N], ping, help
 
 Rejects Unknown UDP Command
     ${reply}=    Send UDP Command    make coffee

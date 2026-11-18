@@ -56,6 +56,12 @@ util::text_stream& operator<<(util::text_stream& out, compass_degrees d)
 
 util::text_stream& operator<<(util::text_stream& out, clock_time t)
 {
+    return out << clock_minute{t.second_of_day / 60} << ':'
+               << util::dec(t.second_of_day % 60, 2, '0');
+}
+
+util::text_stream& operator<<(util::text_stream& out, clock_minute t)
+{
     return out << util::dec(t.minute_of_day / 60, 2, '0') << ':'
                << util::dec(t.minute_of_day % 60, 2, '0');
 }

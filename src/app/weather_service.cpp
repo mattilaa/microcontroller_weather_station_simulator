@@ -79,14 +79,15 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << ",\"wind_direction\":" << r.wind_direction.value
         << ",\"wind_compass\":\"" << compass_point(r.wind_direction.value)
         << "\",\"rain\":" << util::fixed(r.rain.value, 2)
-        << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2) << "}\n";
+        << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2);
 }
 
 // One log row: seq,day,time,temperature,humidity,wind_speed,wind_direction,rain
 void write_csv_row(util::text_stream& out, const weather_log::entry& e)
 {
     const weather_reading& r = e.reading;
-    out << e.sequence << ',' << r.day << ',' << r.time << ','
+    out << e.sequence << ',' << r.day << ','
+        << clock_minute{r.time.second_of_day / 60} << ','
         << util::fixed(r.temperature.value, 2) << ','
         << util::fixed(r.humidity.value, 2) << ','
         << util::fixed(r.wind_speed.value, 2) << ',' << r.wind_direction.value
@@ -126,7 +127,10 @@ size_t weather_service::handle(
     if(equals(command, "weather"))
     {
         if(_station.has_reading())
+        {
             write_json(out, _station.latest());
+            out << ",\"speed\":" << _station.speed() << "}\n";
+        }
         else
             out << "error: no reading yet\n";
     }
@@ -138,7 +142,7 @@ size_t weather_service::handle(
         else
         {
             _station.set_time_of_day(static_cast<uint32_t>(minute));
-            out << "ok time " << clock_time{static_cast<uint32_t>(minute)}
+            out << "ok time " << clock_minute{static_cast<uint32_t>(minute)}
                 << '\n';
         }
     }
@@ -156,22 +160,37 @@ size_t weather_service::handle(
     {
         constexpr int32_t MAX_MINUTES = 3 * 24 * 60;
         const int32_t minutes = parse_number(command.subspan(8));
-        if(minutes < static_cast<int32_t>(weather_station::READING_MINUTES) ||
-           minutes > MAX_MINUTES)
+        if(minutes < 10 || minutes > MAX_MINUTES)
             out << "error: expected advance <minutes> (10.." << MAX_MINUTES
                 << ")\n";
         else
         {
             _station.fast_forward(static_cast<uint32_t>(minutes));
             const weather_reading& r = _station.latest();
-            out << "ok advanced to day " << r.day << ' ' << r.time << '\n';
+            out << "ok advanced to day " << r.day << ' '
+                << clock_minute{r.time.second_of_day / 60} << '\n';
+        }
+    }
+    else if(equals(command, "speed"))
+        out << "speed " << _station.speed() << '\n';
+    else if(starts_with(command, "speed "))
+    {
+        const int32_t speed = parse_number(command.subspan(6));
+        if(speed < 1 ||
+           speed > static_cast<int32_t>(weather_station::MAX_SPEED))
+            out << "error: expected speed <1.." << weather_station::MAX_SPEED
+                << ">\n";
+        else
+        {
+            _station.set_speed(static_cast<uint32_t>(speed));
+            out << "ok speed " << _station.speed() << '\n';
         }
     }
     else if(equals(command, "ping"))
         out << "pong\n";
     else if(equals(command, "help"))
         out << "commands: weather, time HH:MM, log [sequence], "
-               "advance <minutes>, ping, help\n";
+               "advance <minutes>, speed [N], ping, help\n";
     else
         out << "error: unknown command\n";
 

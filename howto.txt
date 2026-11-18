@@ -6,16 +6,21 @@ SETUP (once)
   cmake -B build -G Ninja
   cmake --build build
 
-RUN THE SIMULATION
+RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   source .venv/bin/activate
-  cmake --build build --target run                  # 'q' quits
+  cmake --build build --target run
+  cmake -B build -DSIM_SPEED=600 && cmake --build build --target run   # 10 min/s
   echo weather | nc -u -w1 127.0.0.1 5555           # in another terminal
-  python tools/weather_tool.py demo --minutes 2880 --hours 48   # -> weather.png
 
-PLOT THE MEASURED DATA (firmware running with the 'run' target above)
-  python tools/weather_tool.py fetch --out weather.csv          # import readings
-  python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
-  # fetch again later to add new readings; --advance 1440 fast-forwards a day first
+RECORD AND PLOT LIVE MEASUREMENTS (own QEMU; Ctrl-C stops; -> weather.png)
+  python tools/weather_tool.py record                           # real time
+  python tools/weather_tool.py record --speed 3600 --hours 48   # 48 h in < 1 min
+  python tools/weather_tool.py record --speed 600 --live        # live window
+
+PLOT FROM THE RUNNING FIRMWARE ('run' target above)
+  python tools/weather_tool.py record --port 5555               # keep collecting
+  python tools/weather_tool.py fetch --out weather.csv          # one import
+  python tools/weather_tool.py plot weather.csv --out weather.png
 
 TESTS
   source .venv/bin/activate

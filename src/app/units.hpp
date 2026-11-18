@@ -34,7 +34,12 @@ struct compass_degrees
     int32_t value;
 };
 
-struct clock_time // simulated time of day, prints "06:10"
+struct clock_time // simulated time of day, prints "06:10:05"
+{
+    uint32_t second_of_day;
+};
+
+struct clock_minute // simulated time of day to the minute, prints "06:10"
 {
     uint32_t minute_of_day;
 };
@@ -48,5 +53,6 @@ util::text_stream& operator<<(util::text_stream& out, centi_mps s);
 util::text_stream& operator<<(util::text_stream& out, centi_mm r);
 util::text_stream& operator<<(util::text_stream& out, compass_degrees d);
 util::text_stream& operator<<(util::text_stream& out, clock_time t);
+util::text_stream& operator<<(util::text_stream& out, clock_minute t);
 
 } // namespace app

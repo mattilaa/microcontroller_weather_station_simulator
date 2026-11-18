@@ -57,19 +57,47 @@ The main loop is a small cooperative scheduler:
 
 | Task        | Period  | What it does                                 |
 |-------------|---------|----------------------------------------------|
-| `weather`   | 1000 ms | Reads all five sensors, updates moving averages and logs the reading |
+| `weather`   | 1000 ms | Samples all five sensors; logs a record every 10 simulated minutes |
 | `network`   | 5 ms    | Polls the virtio-net device and answers ARP, ping and UDP |
 | `console`   | 10 ms   | Checks the UART for single-key commands      |
 
 All tasks live in a fixed table; the `scheduler` is given that table at compile time.
 
-Console commands: `h` help, `s` status, `w` weather report, `d` dump the last 8 readings,
-`n` network status, `v` toggle verbose output, `q` quit QEMU.
+Console commands: `h` help, `s` status, `w` weather report, `d` dump the last 8 records,
+`n` network status, `+`/`-` faster/slower simulation, `v` toggle verbose output, `q` quit
+QEMU.
+
+## Real time and the speed switch
+
+By default the simulation runs in **real time**: the station samples its sensors every
+second, and simulated time passes as fast as real time. Day 1 starts at 06:00.
+
+Like a real automatic weather station, it logs **10-minute records**. Each record holds
+the time-weighted means of the samples in its interval (wind direction averaged on the
+circle) and the rain that fell in it, and is stamped with the interval's end time: the
+06:10 record covers 06:00–06:10.
+
+To avoid waiting 48 hours for 48 hours of data, set the **speed switch** to any value from
+1 to 3600 (simulated seconds per real second):
+
+| Speed | One real second is | 48 simulated hours take |
+|-------|--------------------|-------------------------|
+| 1 (default) | 1 s (real time) | 48 hours |
+| 600 | 10 minutes | under 5 minutes |
+| 3600 | 1 hour | under a minute |
+
+- **QEMU command line:** `-fw_cfg name=opt/weather/speed,string=600`. The firmware reads
+  it at boot through QEMU's fw_cfg device.
+- **CMake `run` target:** `cmake -B build -DSIM_SPEED=600`.
+- **While running:** the UDP command `speed 600`, or the console keys `+`/`-` (1, 10, 60,
+  600, 3600).
+- **Plotting tool:** `record --speed 600`.
+
+The weather model steps once per simulated minute at every speed, so the weather
+behaves the same at 1× and at 3600×. Every sample is still taken from the model
+(at most one simulated minute apart).
 
 ## Weather simulation
-
-Simulated time runs 600× faster than real time, so each one-second reading is ten
-simulated minutes and a day lasts 2.4 minutes. Day 1 starts at 06:00.
 
 | Quantity | Model |
 |----------|-------|
@@ -94,10 +122,11 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | `{"day":1,"time":"06:10","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"speed":1}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
-| `log [sequence]` | one page (up to 20 rows) of logged readings as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
-| `advance MINUTES` | fast-forwards the simulation (10…4320 minutes), logging a reading every 10 simulated minutes |
+| `log [sequence]` | one page (up to 20 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
+| `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
+| `speed [N]` | shows or sets the simulation speed (1…3600) |
 | `ping` | `pong` |
 | `help` | the list of commands |
 
@@ -107,7 +136,7 @@ listens on port 5000; each datagram is one command:
 echo weather | nc -u -w1 127.0.0.1 5555
 ```
 
-The firmware keeps the last 512 readings (3.5 simulated days) in its log.
+The firmware keeps the last 512 records (3.5 simulated days) in its log.
 
 ## Importing and plotting the data
 
@@ -123,17 +152,24 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
 With the [virtual environment](#python-virtual-environment) set up and active:
 
 ```sh
-# With the firmware running (cmake --build build --target run):
-python tools/weather_tool.py fetch --out weather.csv            # import new readings
-python tools/weather_tool.py fetch --out weather.csv --advance 1440   # fast-forward a day first
+# Record live: starts its own QEMU, imports records as they are measured and keeps
+# weather.png up to date (Ctrl-C stops). --speed is the speed switch.
+python tools/weather_tool.py record --speed 3600 --hours 48     # 48 h in under a minute
+python tools/weather_tool.py record --speed 600 --live          # also a live chart window
+python tools/weather_tool.py record                             # real time
+
+# Against an already running firmware (cmake --build build --target run):
+python tools/weather_tool.py record --port 5555 --speed 600
+python tools/weather_tool.py fetch --out weather.csv            # one import
 python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
 
-# Or everything at once, with its own QEMU:
+# Instant: fast-forward without waiting at all.
 python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 --hours 48
 ```
 
-`fetch` appends only readings that aren't in the CSV yet, so it can be run repeatedly
-while the firmware keeps measuring.
+`fetch` and `record` append only records that aren't in the CSV yet, so they can be run
+repeatedly while the firmware keeps measuring. `record` with its own QEMU starts a fresh
+CSV, because a fresh firmware starts a fresh log.
 
 ## Requirements
 
@@ -199,7 +235,8 @@ UART and over Ethernet:
 | `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
 | `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, daily rain totals, the log and fast-forward |
-| `tools.robot` | `weather_tool.py demo` end to end (QEMU, import over UDP, plot), and replotting a CSV |
+| `realtime.robot` | real time by default, the QEMU speed switch, changing speed over UDP and from the console, records as means of their samples |
+| `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
 | `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, size budget |
 
@@ -260,7 +297,7 @@ src/main.cpp                        static object graph + main loop
 src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
 src/app/tasks.*                     weather/network/console tasks
 src/app/weather_model.*             simulated weather (daily cycles + random processes)
-src/app/weather_station.*           sensors (noise, resolution, rain gauge), averages, reading log
+src/app/weather_station.*           sensors (noise, resolution, rain gauge), samples, 10-minute records, log
 src/app/weather_service.*           UDP command protocol (port 5000)
 src/app/units.*                     fixed-point units and their formatting
 src/app/console.*                   UART text output
@@ -270,6 +307,7 @@ src/hal/virtio_net.*                polled virtio-net driver
 src/hal/pl011.*                     PL011 UART driver (0x09000000)
 src/hal/generic_timer.*             ARM generic timer (CNTPCT_EL0)
 src/hal/semihosting.*               semihosting SYS_EXIT so QEMU can quit
+src/hal/fw_cfg.*                    QEMU fw_cfg reader (the speed switch)
 src/net/stack.*                     IPv4 stack: ARP, ICMP echo, UDP
 src/net/bytes.hpp                   big-endian field access, Internet checksum
 src/runtime/cxx_runtime.cpp         __cxa_pure_virtual, global-constructor loop

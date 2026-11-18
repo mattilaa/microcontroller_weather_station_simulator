@@ -62,7 +62,7 @@ public:
         const hal::pl011& uart,
         util::text_stream& out,
         settings& settings,
-        const weather_station& station,
+        weather_station& station,
         const hal::virtio_net& nic,
         const net::stack& stack,
         const scheduler& scheduler)
@@ -79,11 +79,12 @@ private:
     void print_status(uint64_t now_ms);
     void print_weather();
     void print_history();
+    void change_speed(bool faster);
 
     const hal::pl011& _uart;
     util::text_stream& _out;
     settings& _settings;
-    const weather_station& _station;
+    weather_station& _station;
     const hal::virtio_net& _nic;
     const net::stack& _stack;
     const scheduler& _scheduler;

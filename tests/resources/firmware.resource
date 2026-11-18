@@ -13,20 +13,35 @@ Library             network_peer.NetworkPeer
 ${FIRMWARE}         build/firmware.elf
 ${QEMU}             qemu-system-aarch64
 ${BOOT_TIMEOUT}     10s
-# One line of sensor readings, e.g.
-# "06:10 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW | rain 0.40 mm"
-${READING}          (\\d\\d):(\\d\\d) temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+) \\| rain (\\d+\\.\\d\\d) mm
+# Default simulation speed for the suites: ten simulated minutes per second,
+# so tests see hours of weather quickly. ${NONE} = no switch (real time).
+${SPEED}            600
+# One line of sensor readings (groups: hours, minutes, temperature, humidity,
+# wind speed, direction, compass point, rain), e.g.
+# "06:10:00 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW | rain 0.40 mm"
+${READING}          (\\d\\d):(\\d\\d):\\d\\d temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+) \\| rain (\\d+\\.\\d\\d) mm
 
 
 *** Keywords ***
 Start Firmware With Network
-    [Documentation]    Start QEMU with a virtio-net device wired to the test's network peer.
+    [Documentation]    Start QEMU with a virtio-net device wired to the test's
+    ...                network peer, and the simulation speed switch set to
+    ...                ${speed} (${NONE}: no switch, so the firmware runs in real time).
+    [Arguments]    ${speed}=${SPEED}
     ${network_args}=    Open Network Peer
-    Start Firmware    @{network_args}
+    ${speed_args}=    Speed Switch    ${speed}
+    Start Firmware    @{network_args}    @{speed_args}
+
+Speed Switch
+    [Documentation]    QEMU arguments for the simulation speed switch.
+    [Arguments]    ${speed}
+    IF    $speed is None    RETURN    @{EMPTY}
+    RETURN    -fw_cfg    name=opt/weather/speed,string=${speed}
 
 Boot Firmware
     [Documentation]    Start QEMU (with network) and wait until the firmware has printed its help text.
-    Start Firmware With Network
+    [Arguments]    ${speed}=${SPEED}
+    Start Firmware With Network    ${speed}
     Wait For Output    q\\s+quit QEMU    timeout=${BOOT_TIMEOUT}
 
 Shut Down Firmware

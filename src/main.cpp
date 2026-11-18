@@ -10,6 +10,7 @@
 #include "app/tasks.hpp"
 #include "app/weather_service.hpp"
 #include "app/weather_station.hpp"
+#include "hal/fw_cfg.hpp"
 #include "hal/generic_timer.hpp"
 #include "hal/pl011.hpp"
 #include "hal/virtio_net.hpp"
@@ -57,6 +58,24 @@ constinit task* const task_table[] =
     {&weather_reader, &network, &command_shell};
 constinit scheduler task_scheduler{task_table};
 
+// The simulation speed switch: -fw_cfg name=opt/weather/speed,string=<N>
+void apply_speed_switch()
+{
+    uint8_t text[12] = {};
+    const int32_t size =
+        hal::fw_cfg::read_file("opt/weather/speed", {text, sizeof(text)});
+    uint32_t speed = 0;
+    for(int32_t i = 0; i < size && i < static_cast<int32_t>(sizeof(text)); ++i)
+        if(text[i] >= '0' && text[i] <= '9')
+            speed = speed * 10 + (text[i] - '0');
+    if(speed > 0)
+        station.set_speed(speed);
+    serial_console << "simulation speed: " << station.speed() << "x"
+                   << (station.speed() == 1 ? " (real time)" : "")
+                   << (speed > 0 ? ", from QEMU -fw_cfg opt/weather/speed\n"
+                                 : ", default\n");
+}
+
 unsigned current_el()
 {
     uint64_t el;
@@ -77,6 +96,7 @@ extern "C" [[noreturn]] void main()
                    << "running at EL" << current_el()
                    << ", no operating system\n";
 
+    apply_speed_switch();
     if(ethernet.init() == hal::virtio_net::status::ready)
         ip_stack.announce();
     command_shell.print_network();

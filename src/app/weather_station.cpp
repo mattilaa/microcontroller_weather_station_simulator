@@ -12,6 +12,15 @@ util::text_stream& operator<<(util::text_stream& out, const weather_reading& r)
                << " | rain " << r.rain;
 }
 
+int32_t sensor_model::measure(int32_t true_value)
+{
+    const int32_t noisy = true_value + _rng.gaussian(_noise_sigma);
+    return util::clamp(util::round_to(noisy, _resolution), _min, _max);
+}
+
+// ---- weather_log
+// ----------------------------------------------------------------
+
 void weather_log::add(const weather_reading& reading)
 {
     if(_entries.full())
@@ -31,60 +40,94 @@ size_t weather_log::find(uint32_t sequence) const
     return offset < _entries.size() ? offset : _entries.size();
 }
 
-int32_t sensor_model::measure(int32_t true_value)
+// ---- weather_station
+// ------------------------------------------------------------
+
+void weather_station::set_speed(uint32_t speed)
 {
-    const int32_t noisy = true_value + _rng.gaussian(_noise_sigma);
-    return util::clamp(util::round_to(noisy, _resolution), _min, _max);
+    _speed = speed < 1 ? 1 : (speed > MAX_SPEED ? MAX_SPEED : speed);
 }
 
 void weather_station::update(uint64_t now_ms)
 {
-    if(_has_reading)
-        _model.advance(static_cast<uint32_t>(now_ms - _last_update_ms));
-    else
-        _model.advance(0); // compute the initial conditions
+    _update_rain = 0;
+    if(!_has_reading)
+    {
+        _model.advance_simulated(0); // compute the initial conditions
+        _last_update_ms = now_ms;
+        sample(0);
+        return;
+    }
+    _unsimulated_ms += (now_ms - _last_update_ms) * _speed;
     _last_update_ms = now_ms;
-    take_reading();
+    const uint64_t sim_seconds = _unsimulated_ms / 1000;
+    _unsimulated_ms %= 1000;
+    simulate(sim_seconds);
+}
+
+void weather_station::fast_forward(uint32_t minutes)
+{
+    _update_rain = 0;
+    simulate(static_cast<uint64_t>(minutes) * 60);
 }
 
 void weather_station::set_time_of_day(uint32_t minute)
 {
     _model.set_time_of_day(minute);
-    take_reading();
+    // Start a fresh interval: the old one doesn't fit the new clock.
+    _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
+    _sum_weight = 0;
+    _interval_rain = 0;
+    _update_rain = 0;
+    sample(0);
 }
 
-void weather_station::fast_forward(uint32_t minutes)
+void weather_station::simulate(uint64_t sim_seconds)
 {
-    for(uint32_t i = 0; i < minutes / READING_MINUTES; ++i)
+    while(sim_seconds > 0)
     {
-        _model.advance_simulated(READING_MINUTES * 60);
-        take_reading();
+        // Step to the next sample: at most a minute, and never past the end
+        // of the current 10-minute interval.
+        const auto into_interval =
+            static_cast<uint32_t>(_model.simulated_seconds() % RECORD_SECONDS);
+        uint64_t chunk = RECORD_SECONDS - into_interval;
+        if(chunk > MAX_SAMPLE_SECONDS)
+            chunk = MAX_SAMPLE_SECONDS;
+        if(chunk > sim_seconds)
+            chunk = sim_seconds;
+
+        _model.advance_simulated(static_cast<uint32_t>(chunk));
+        sample(static_cast<uint32_t>(chunk));
+        sim_seconds -= chunk;
+
+        if(_model.simulated_seconds() % RECORD_SECONDS == 0)
+            close_record();
     }
 }
 
-void weather_station::take_reading()
+void weather_station::sample(uint32_t weight_seconds)
 {
     const weather_conditions& truth = _model.conditions();
+    const int32_t direction =
+        util::wrap(_wind_vane.measure(truth.wind_direction), 360);
 
     // Tipping-bucket rain gauge: it reports rain only in whole 0.2 mm tips;
     // the rest stays in the bucket until the next tip.
     _rain_bucket += _model.take_rain();
-    const int32_t rain = _rain_bucket / RAIN_GAUGE_TIP * RAIN_GAUGE_TIP;
-    _rain_bucket -= rain;
-    if(_has_reading && _model.day() != _latest.day)
-        _rain_today = 0; // midnight
-    _rain_today += rain;
-    const int32_t direction =
-        util::wrap(_wind_vane.measure(truth.wind_direction), 360);
+    const int32_t tipped = _rain_bucket / RAIN_GAUGE_TIP * RAIN_GAUGE_TIP;
+    _rain_bucket -= tipped;
+    _interval_rain += tipped;
+    _update_rain += tipped;
+    _rain_today += tipped;
 
     _latest = {
         .day = _model.day(),
-        .time = {_model.minute_of_day()},
+        .time = {_model.second_of_day()},
         .temperature = {_thermometer.measure(truth.temperature)},
         .humidity = {_hygrometer.measure(truth.humidity)},
         .wind_speed = {_anemometer.measure(truth.wind_speed)},
         .wind_direction = {direction},
-        .rain = {rain},
+        .rain = {_update_rain},
         .rain_today = {_rain_today},
     };
 
@@ -102,27 +145,48 @@ void weather_station::take_reading()
         _unwrapped_direction += turn;
     }
 
-    _temperature_avg.add(_latest.temperature.value);
-    _humidity_avg.add(_latest.humidity.value);
-    _wind_speed_avg.add(_latest.wind_speed.value);
-    _wind_direction_avg.add(_unwrapped_direction);
-
-    _log.add(_latest);
+    // An instantaneous sample (weight 0) still counts when it's the first.
+    const uint32_t weight = weight_seconds > 0 ? weight_seconds
+                            : _sum_weight == 0 ? 1
+                                               : 0;
+    _sum_temperature +=
+        static_cast<int64_t>(_latest.temperature.value) * weight;
+    _sum_humidity += static_cast<int64_t>(_latest.humidity.value) * weight;
+    _sum_wind_speed += static_cast<int64_t>(_latest.wind_speed.value) * weight;
+    _sum_direction += static_cast<int64_t>(_unwrapped_direction) * weight;
+    _sum_weight += weight;
     _has_reading = true;
 }
 
-weather_reading weather_station::average() const
+weather_reading weather_station::interval_mean() const
 {
+    if(_sum_weight == 0)
+        return _latest;
+    const auto mean = [this](int64_t sum)
+    { return static_cast<int32_t>(sum / _sum_weight); };
     return {
         .day = _latest.day,
         .time = _latest.time,
-        .temperature = {_temperature_avg.average()},
-        .humidity = {_humidity_avg.average()},
-        .wind_speed = {_wind_speed_avg.average()},
-        .wind_direction = {util::wrap(_wind_direction_avg.average(), 360)},
-        .rain = _latest.rain,
-        .rain_today = _latest.rain_today,
+        .temperature = {mean(_sum_temperature)},
+        .humidity = {mean(_sum_humidity)},
+        .wind_speed = {mean(_sum_wind_speed)},
+        .wind_direction = {util::wrap(mean(_sum_direction), 360)},
+        .rain = {_interval_rain},
+        .rain_today = {_rain_today},
     };
+}
+
+void weather_station::close_record()
+{
+    _log.add(interval_mean());
+
+    // The record ending at midnight still belongs to the old day's total.
+    if(_model.second_of_day() == 0)
+        _rain_today = 0;
+
+    _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
+    _sum_weight = 0;
+    _interval_rain = 0;
 }
 
 } // namespace app

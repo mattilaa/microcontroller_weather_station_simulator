@@ -29,6 +29,19 @@ int32_t revert(
                          (dt_seconds > tau_seconds ? dt_seconds : tau_seconds);
     return value + static_cast<int32_t>(pull) + noise;
 }
+
+// The random processes are kept FINE times finer than their public units, so
+// a one-minute step's tiny pull toward the mean doesn't round away to 0.
+constexpr int32_t FINE = weather_model::FINE;
+
+// Noise per one-minute step. A random walk's spread grows with the square
+// root of time, so these are the 10-minute values divided by sqrt(10).
+constexpr int32_t FRONT_NOISE = 9 * FINE;        // 0.01 C
+constexpr int32_t MOISTURE_NOISE = 32 * FINE;    // 0.01 %RH
+constexpr int32_t CLOUD_TREND_NOISE = 19 * FINE; // per mille
+constexpr int32_t CLOUD_NOISE = 6 * FINE;        // per mille
+constexpr int32_t WIND_NOISE = 13 * FINE;        // 0.01 m/s
+constexpr int32_t PREVAILING_NOISE = 16 * FINE;  // 0.1 degrees
 } // namespace
 
 int32_t weather_model::daily_temperature(uint32_t minute_of_day)
@@ -51,30 +64,29 @@ int32_t weather_model::daily_mean_wind(uint32_t minute_of_day)
 
 uint32_t weather_model::day() const
 {
-    return static_cast<uint32_t>(_sim_seconds / (MINUTES_PER_DAY * 60)) + 1;
+    return static_cast<uint32_t>(_sim_seconds / SECONDS_PER_DAY) + 1;
+}
+
+uint32_t weather_model::second_of_day() const
+{
+    return static_cast<uint32_t>(_sim_seconds % SECONDS_PER_DAY);
 }
 
 uint32_t weather_model::minute_of_day() const
 {
-    return static_cast<uint32_t>(_sim_seconds / 60 % MINUTES_PER_DAY);
-}
-
-void weather_model::advance(uint32_t real_ms)
-{
-    advance_simulated(
-        static_cast<uint32_t>(
-            static_cast<uint64_t>(real_ms) * SIM_SECONDS_PER_REAL_SECOND /
-            1000));
+    return second_of_day() / 60;
 }
 
 void weather_model::advance_simulated(uint32_t sim_seconds)
 {
     _sim_seconds += sim_seconds;
-    if(sim_seconds > 0)
-        step_random_processes(sim_seconds);
+    _unstepped_seconds += sim_seconds;
+    while(_unstepped_seconds >= STEP_SECONDS)
+    {
+        _unstepped_seconds -= STEP_SECONDS;
+        step(STEP_SECONDS);
+    }
     update_conditions();
-    // Rain falls at the new rate over the elapsed time.
-    _rain_fallen += static_cast<int64_t>(_conditions.rain_rate) * sim_seconds;
 }
 
 int32_t weather_model::take_rain()
@@ -87,95 +99,112 @@ int32_t weather_model::take_rain()
 
 void weather_model::set_time_of_day(uint32_t minute)
 {
-    const uint64_t day_start =
-        _sim_seconds / (MINUTES_PER_DAY * 60) * (MINUTES_PER_DAY * 60);
+    const uint64_t day_start = _sim_seconds / SECONDS_PER_DAY * SECONDS_PER_DAY;
     _sim_seconds = day_start + (minute % MINUTES_PER_DAY) * 60;
     update_conditions();
 }
 
-void weather_model::step_random_processes(uint32_t dt)
+void weather_model::step(uint32_t dt)
 {
     // Weather fronts: +/- 3 C offset that wanders over hours.
     _front = util::clamp(
-        revert(_front, 0, dt, 6 * 3600, _rng.gaussian(30)),
-        -300,
-        300);
+        revert(_front, 0, dt, 6 * 3600, _rng.gaussian(FRONT_NOISE)),
+        -300 * FINE,
+        300 * FINE);
 
     // Moisture: +/- 10 %RH offset, a little faster than fronts.
     _moisture = util::clamp(
-        revert(_moisture, 0, dt, 3 * 3600, _rng.gaussian(100)),
-        -1000,
-        1000);
+        revert(_moisture, 0, dt, 3 * 3600, _rng.gaussian(MOISTURE_NOISE)),
+        -1000 * FINE,
+        1000 * FINE);
 
     // Cloudiness follows a slowly wandering trend (hours to build up and
     // clear), so showers ramp up and die out instead of flickering. It
     // spends roughly a seventh of the time above the rain threshold.
     _cloud_trend = util::clamp(
-        revert(_cloud_trend, 350, dt, 6 * 3600, _rng.gaussian(60)),
+        revert(
+            _cloud_trend,
+            350 * FINE,
+            dt,
+            6 * 3600,
+            _rng.gaussian(CLOUD_TREND_NOISE)),
         0,
-        1000);
+        1000 * FINE);
     _cloud = util::clamp(
-        revert(_cloud, _cloud_trend, dt, 3600, _rng.gaussian(20)),
+        revert(_cloud, _cloud_trend, dt, 3600, _rng.gaussian(CLOUD_NOISE)),
         0,
-        1000);
+        1000 * FINE);
 
     // Wetness builds up within half an hour of rain and dries over hours.
-    const bool raining = _cloud > RAIN_THRESHOLD;
-    _wetness = raining ? revert(_wetness, 1000, dt, 30 * 60, 0)
+    const bool raining = _cloud > RAIN_THRESHOLD * FINE;
+    _wetness = raining ? revert(_wetness, 1000 * FINE, dt, 30 * 60, 0)
                        : revert(_wetness, 0, dt, 2 * 3600, 0);
 
     // Sustained wind follows the daily mean with a 30 min time constant.
     _sustained_wind = util::clamp(
         revert(
             _sustained_wind,
-            daily_mean_wind(minute_of_day()),
+            daily_mean_wind(minute_of_day()) * FINE,
             dt,
             30 * 60,
-            _rng.gaussian(40)),
+            _rng.gaussian(WIND_NOISE)),
         0,
-        2000);
+        2000 * FINE);
 
-    // Gusts: decay by half each step; 6 % chance of a new 1-3 m/s gust.
-    _gust = _gust / 2;
-    if(_rng.below(100) < 6)
-        _gust += _rng.between(100, 300);
+    // Gusts: halve every 10 minutes (x0.933 per minute); 0.6 % chance per
+    // minute of a new 1-3 m/s gust.
+    _gust = static_cast<int32_t>(static_cast<int64_t>(_gust) * 933 / 1000);
+    if(_rng.below(1000) < 6)
+        _gust += _rng.between(100, 300) * FINE;
 
-    // Prevailing direction drifts ~5 degrees per step, pulled back toward
-    // SW over half a day.
-    _prevailing = revert(_prevailing, 2250, dt, 12 * 3600, _rng.gaussian(50));
+    // Prevailing direction drifts a few degrees per 10 minutes, pulled back
+    // toward SW over half a day.
+    _prevailing = revert(
+        _prevailing,
+        2250 * FINE,
+        dt,
+        12 * 3600,
+        _rng.gaussian(PREVAILING_NOISE));
 
     // Vane swing: about 30 degrees in calm air, a few degrees in strong wind.
-    const int32_t speed = _sustained_wind + _gust;
+    const int32_t speed = (_sustained_wind + _gust) / FINE;
     // sigma = 30 deg * 1 m/s / (speed + 1 m/s): 30 deg calm, ~7 deg at 3 m/s.
     _vane_swing = _rng.gaussian(3000 / (speed + 100));
+
+    // Rain falls at the step's rate (computed from the new cloudiness).
+    update_conditions();
+    _rain_fallen += static_cast<int64_t>(_conditions.rain_rate) * dt;
 }
 
 void weather_model::update_conditions()
 {
     const uint32_t minute = minute_of_day();
+    const int32_t cloud = _cloud / FINE;
 
     // Rain: 0 below the threshold, then 0.015 mm/h per step of cloudiness
     // (up to ~5 mm/h under a full overcast).
     const int32_t rain_rate =
-        _cloud > RAIN_THRESHOLD ? (_cloud - RAIN_THRESHOLD) * 3 / 2 : 0;
+        cloud > RAIN_THRESHOLD ? (cloud - RAIN_THRESHOLD) * 3 / 2 : 0;
 
     // Clouds flatten the daily swing (to 75 % under full overcast) and rain
     // cools the air (1 C at 4 mm/h).
     const int32_t clear_sky_swing = daily_temperature(minute) - 1500;
     const int32_t temperature = 1500 +
-                                clear_sky_swing * (1000 - _cloud / 4) / 1000 +
-                                _front - rain_rate / 4;
+                                clear_sky_swing * (1000 - cloud / 4) / 1000 +
+                                _front / FINE - rain_rate / 4;
 
     // Relative humidity drops ~3 %RH per degree of warming above the mean,
     // rises with cloudiness (+/- 7 %RH) and with wetness (up to +25 %RH).
-    const int32_t humidity = 6500 - 3 * (temperature - 1500) + _moisture +
-                             (_cloud - 350) * 2 + _wetness * 5 / 2;
+    const int32_t humidity = 6500 - 3 * (temperature - 1500) +
+                             _moisture / FINE + (cloud - 350) * 2 +
+                             _wetness / FINE * 5 / 2;
 
     _conditions = {
         .temperature = temperature,
         .humidity = util::clamp(humidity, 1500, 10000),
-        .wind_speed = util::clamp(_sustained_wind + _gust, 0, 4000),
-        .wind_direction = util::wrap(_prevailing / 10 + _vane_swing, 360),
+        .wind_speed = util::clamp((_sustained_wind + _gust) / FINE, 0, 4000),
+        .wind_direction =
+            util::wrap(_prevailing / FINE / 10 + _vane_swing, 360),
         .rain_rate = rain_rate,
     };
 }

@@ -22,7 +22,8 @@ Weather Reading Has All Quantities
     Dictionary Should Contain Key    ${r}    rain
     Dictionary Should Contain Key    ${r}    rain_today
     Should Be Equal As Integers    ${r}[day]    1
-    Should Match Regexp    ${r}[time]    ^\\d\\d:\\d\\d$
+    Should Match Regexp    ${r}[time]    ^\\d\\d:\\d\\d:\\d\\d$
+    Should Be Equal As Integers    ${r}[speed]    600
 
 Readings Stay In Physical Ranges
     ${output}=    Collect Output    6.2s
@@ -74,7 +75,7 @@ Clock Can Be Set Over UDP
     ${reply}=    Send UDP Command    time 12:34
     Should Be Equal    ${reply}    ok time 12:34
     ${r}=    Query Weather
-    Should Match Regexp    ${r}[time]    ^12:(3[4-9]|4\\d)$
+    Should Match Regexp    ${r}[time]    ^12:(3[4-9]|4\\d):\\d\\d$
 
 Invalid Time Is Rejected
     ${reply}=    Send UDP Command    time 24:00
@@ -82,13 +83,13 @@ Invalid Time Is Rejected
     ${reply}=    Send UDP Command    time 1:00
     Should Be Equal    ${reply}    error: expected time HH:MM
 
-Fast-Forward Logs A Reading Every Ten Minutes
+Fast-Forward Logs A Record Every Ten Minutes
     ${before}=    Fetch Weather Log
     ${reply}=    Send UDP Command    advance 1440
     Should Match Regexp    ${reply}    ^ok advanced to day 2 \\d\\d:\\d\\d$
     ${after}=    Fetch Weather Log
     ${added}=    Evaluate    len($after) - len($before)
-    Should Be True    144 <= ${added} <= 146    msg=${added} readings for one simulated day
+    Should Be True    144 <= ${added} <= 146    msg=${added} records for one simulated day
 
 Fast-Forward Rejects Invalid Durations
     ${reply}=    Send UDP Command    advance 5
@@ -99,7 +100,8 @@ Fast-Forward Rejects Invalid Durations
 Log Is Served In Pages
     Send UDP Command    advance 600
     ${page}=    Send UDP Command    log 0
-    Should Match Regexp    ${page}    ^log next=20 count=20\\n0,1,06:00,
+    # The first record covers 06:00-06:10 and is stamped with its end.
+    Should Match Regexp    ${page}    ^log next=20 count=20\\n0,1,06:10,
     ${page}=    Send UDP Command    log 99999
     Should Match Regexp    ${page}    ^log next=\\d+ count=0$
     ${reply}=    Send UDP Command    log abc
@@ -131,8 +133,11 @@ Daily Rain Total Counts From Midnight
     Send UDP Command    advance 4320
     ${now}=    Query Weather
     ${log}=    Fetch Weather Log
-    # Only rows up to the queried reading: the weather task keeps logging.
+    # Today's records up to the queried sample. The 00:00 record still
+    # belongs to yesterday, and the weather task keeps logging meanwhile.
     # (Robot variables can't be used inside a generator, so pass them in.)
-    ${today}=    Evaluate
-    ...    (lambda log, day, until: round(sum(r["rain"] for r in log if r["day"] == day and r["time"] <= until), 2))($log, $now["day"], $now["time"])
-    Should Be Equal As Numbers    ${now}[rain_today]    ${today}
+    ${logged}=    Evaluate
+    ...    (lambda log, day, until: round(sum(r["rain"] for r in log if r["day"] == day and "00:00" < r["time"] <= until), 2))($log, $now["day"], $now["time"][:5])
+    # The sample's total also counts the interval in progress (< 10 minutes).
+    Should Be True    ${logged} <= ${now}[rain_today] <= ${logged} + 2
+    ...    msg=rain_today ${now}[rain_today] mm vs ${logged} mm in today's records

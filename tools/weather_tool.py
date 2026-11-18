@@ -437,10 +437,10 @@ def draw(fig, readings, hours=24, title=None):
     ax_w.set_yticks(range(0, w_high + 1, max(1, w_high // 2)))
     ax_w.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
     ax_w.fill_between(times, speeds, color=WIND_COLOR, alpha=0.12, lw=0, zorder=2)
-    ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Mean wind")
+    ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Mean wind (m/s)")
     if has_gusts:
         ax_w.plot([t for t, g in zip(times, gusts) if g is not None], [g for g in gusts if g is not None],
-                  color=WIND_COLOR, lw=1.4, ls=(0, (1, 1.8)), zorder=3, label="Gusts")
+                  color=WIND_COLOR, lw=1.4, ls=(0, (1, 1.8)), zorder=3, label="Gusts (m/s)")
         ax_w.legend(loc="lower left", bbox_to_anchor=(0.03, 0.98), ncol=2, frameon=False, fontsize=9,
                     handlelength=2.2, columnspacing=1.2)
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
@@ -466,6 +466,8 @@ def draw(fig, readings, hours=24, title=None):
     # Hourly arrows pointing where the wind blows to (FMI style), with the
     # hourly mean speed underneath. (With many hours, every other one.)
     row = transforms.blended_transform_factory(ax_w.transData, ax_w.transAxes)
+    ax_w.text(-0.006, 0.66, "m/s", transform=ax_w.transAxes, ha="right", va="center", fontsize=9,
+              color=WIND_COLOR)
     arrow_points = 9
     arrow_every = 1 if len(hour_data) <= 50 else 2 if len(hour_data) <= 100 else 3
     for h in hour_data[::arrow_every]:
@@ -476,14 +478,14 @@ def draw(fig, readings, hours=24, title=None):
         tail = transforms.offset_copy(row, fig=fig, x=-dx, y=-dy, units="points")
         ax_w.annotate(
             "",
-            xy=(center, 0.80),
+            xy=(center, 0.85),
             xycoords=transforms.offset_copy(row, fig=fig, x=dx, y=dy, units="points"),
-            xytext=(center, 0.80),
+            xytext=(center, 0.85),
             textcoords=tail,
             arrowprops={"arrowstyle": "-|>", "color": WIND_COLOR, "lw": 1.8, "mutation_scale": 11},
             zorder=4,
         )
-        ax_w.text(center, 0.55, f"{h['wind_speed']:.0f}", transform=row, ha="center", va="center",
+        ax_w.text(center, 0.66, f"{h['wind_speed']:.0f}", transform=row, ha="center", va="center",
                   fontsize=9, color=WIND_COLOR)
 
     # -- time axis -------------------------------------------------------------

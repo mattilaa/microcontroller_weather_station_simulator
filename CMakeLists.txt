@@ -27,6 +27,7 @@ add_executable(firmware
     src/app/tasks.cpp
     src/app/units.cpp
     src/app/weather_model.cpp
+    src/app/weather_scenario.cpp
     src/app/weather_service.cpp
     src/app/weather_station.cpp
     src/hal/pl011.cpp
@@ -101,12 +102,16 @@ if(QEMU)
     # Simulation speed switch: 1 = real time, 600 = ten simulated minutes per
     # second (max 72000). cmake -B build -DSIM_SPEED=600
     set(SIM_SPEED 1 CACHE STRING "Simulated seconds per real second (1..72000)")
+    # Weather scenario: default, summer_heat, winter_high, storm, thunderstorm.
+    # cmake -B build -DSIM_SCENARIO=storm
+    set(SIM_SCENARIO default CACHE STRING "Weather scenario")
     set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -semihosting
                   -nic none
                   -global virtio-mmio.force-legacy=false
                   -netdev user,id=net0,hostfwd=udp:127.0.0.1:${QEMU_UDP_PORT}-:5000
                   -device virtio-net-device,netdev=net0
                   -fw_cfg name=opt/weather/speed,string=${SIM_SPEED}
+                  -fw_cfg name=opt/weather/scenario,string=${SIM_SCENARIO}
                   -kernel $<TARGET_FILE:firmware>)
 
     # cmake --build build --target run      (quit: press 'q', or Ctrl-A X)

@@ -59,6 +59,11 @@ util::text_stream& operator<<(util::text_stream& out, hectopascal p)
     return out << p.value << " hPa";
 }
 
+util::text_stream& operator<<(util::text_stream& out, deci_hectopascal p)
+{
+    return out << util::fixed(p.value, 1) << " hPa";
+}
+
 util::text_stream& operator<<(util::text_stream& out, compass_degrees d)
 {
     return out << d.value << " deg " << compass_point(d.value);

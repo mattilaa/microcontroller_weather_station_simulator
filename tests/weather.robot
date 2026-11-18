@@ -26,6 +26,7 @@ Weather Reading Has All Quantities
     ...    cirrus_base    cirrus_top    altostratus_base    altostratus_top
     ...    stratus    stratocumulus    nimbostratus    altocumulus    stratus_top
     ...    stratocumulus_top    nimbostratus_top    altocumulus_base    altocumulus_top
+    ...    pressure    scenario
         Dictionary Should Contain Key    ${r}    ${key}
     END
     Should Be Equal As Integers    ${r}[day]    1
@@ -109,7 +110,7 @@ Log Is Served In Pages
     Send UDP Command    advance 600
     ${page}=    Send UDP Command    log 0
     # The first record covers 06:00-06:10 and is stamped with its end.
-    Should Match Regexp    ${page}    ^log next=10 count=10\\n0,1,06:10,
+    Should Match Regexp    ${page}    ^log next=9 count=9\\n0,1,06:10,
     ${page}=    Send UDP Command    log 99999
     Should Match Regexp    ${page}    ^log next=\\d+ count=0$
     ${reply}=    Send UDP Command    log abc

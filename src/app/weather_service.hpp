@@ -14,6 +14,7 @@ namespace app
 //   log [sequence]   -> one page of logged readings as CSV, from `sequence`
 //   advance MINUTES  -> fast-forward the simulation, logging the records
 //   speed [N]        -> show / set the speed (simulated seconds per second)
+//   scenario [name]  -> show / set the weather scenario; scenarios lists them
 //   ping             -> "pong"
 //   help           -> list of commands
 //   anything else  -> "error: unknown command"

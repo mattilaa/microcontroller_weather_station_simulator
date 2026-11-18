@@ -9,7 +9,8 @@ util::text_stream& operator<<(util::text_stream& out, const weather_reading& r)
 {
     return out << r.time << " temp " << r.temperature << " | hum " << r.humidity
                << " | wind " << r.wind_speed << " from " << r.wind_direction
-               << " | rain " << r.rain << " | cloud " << r.cloud_cover;
+               << " | rain " << r.rain << " | cloud " << r.cloud_cover << " | "
+               << r.pressure;
 }
 
 int32_t sensor_model::measure(int32_t true_value)
@@ -22,7 +23,7 @@ int32_t sensor_model::measure(int32_t true_value)
 // ----------------------------------------------------------------
 
 // The packed record is what keeps the log inside the RAM budget.
-static_assert(sizeof(weather_log::entry) == 40);
+static_assert(sizeof(weather_log::entry) == 44);
 
 void derive_cloud_levels(cloud_layers& c)
 {
@@ -84,6 +85,7 @@ void weather_log::add(const weather_reading& r)
         .stratocumulus = pack<uint8_t>(r.clouds.stratocumulus.value, 0, 100),
         .nimbostratus = pack<uint8_t>(r.clouds.nimbostratus.value, 0, 100),
         .altocumulus = pack<uint8_t>(r.clouds.altocumulus.value, 0, 100),
+        .pressure = pack<uint16_t>(r.pressure.value, 0, 65535),
     });
 }
 
@@ -99,6 +101,7 @@ weather_reading weather_log::entry::reading() const
         .rain = {rain},
         .rain_today = {0},
         .cloud_cover = {cloud_cover},
+        .pressure = {pressure},
         .clouds =
             {
                 .cirrus = {cirrus},
@@ -153,6 +156,13 @@ void weather_station::update(uint64_t now_ms)
     const uint64_t sim_seconds = _unsimulated_ms / 1000;
     _unsimulated_ms %= 1000;
     simulate(sim_seconds);
+}
+
+void weather_station::set_scenario(const weather_scenario& scenario)
+{
+    _model.set_scenario(scenario);
+    _update_rain = 0;
+    sample(0);
 }
 
 void weather_station::fast_forward(uint32_t minutes)
@@ -218,6 +228,7 @@ void weather_station::sample(uint32_t weight_seconds)
         .rain = {_update_rain},
         .rain_today = {_rain_today},
         .cloud_cover = {_sky_imager.measure(truth.cloud_cover / 10)},
+        .pressure = {_barometer.measure(truth.pressure)},
         .clouds =
             {
                 .cirrus = {_cloud_sensor.measure(truth.cirrus / 10)},
@@ -266,6 +277,7 @@ void weather_station::sample(uint32_t weight_seconds)
     _sum_wind_speed += static_cast<int64_t>(_latest.wind_speed.value) * weight;
     _sum_cloud_cover +=
         static_cast<int64_t>(_latest.cloud_cover.value) * weight;
+    _sum_pressure += static_cast<int64_t>(_latest.pressure.value) * weight;
     const cloud_layers& c = _latest.clouds;
     _sum_cirrus += static_cast<int64_t>(c.cirrus.value) * weight;
     _sum_altostratus += static_cast<int64_t>(c.altostratus.value) * weight;
@@ -311,6 +323,7 @@ weather_reading weather_station::mean_of_interval() const
         .rain = {_interval_rain},
         .rain_today = {_rain_today},
         .cloud_cover = {mean(_sum_cloud_cover)},
+        .pressure = {mean(_sum_pressure)},
         .clouds =
             {
                 .cirrus = {mean(_sum_cirrus)},
@@ -346,6 +359,7 @@ void weather_station::reset_interval()
 {
     _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
     _sum_cloud_cover = _sum_cirrus = _sum_altostratus = _sum_cumulus = 0;
+    _sum_pressure = 0;
     _sum_cumulonimbus = _sum_lcl = _sum_cumulus_top = 0;
     _sum_cirrus_base = _sum_cirrus_top = 0;
     _sum_altostratus_base = _sum_altostratus_top = 0;

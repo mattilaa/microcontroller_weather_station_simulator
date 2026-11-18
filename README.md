@@ -64,7 +64,7 @@ The main loop is a small cooperative scheduler:
 All tasks live in a fixed table; the `scheduler` is given that table at compile time.
 
 Console commands: `h` help, `s` status, `w` weather report, `d` dump the last 8 records,
-`n` network status, `+`/`-` faster/slower simulation, `v` toggle verbose output, `q` quit
+`n` network status, `+`/`-` faster/slower simulation, `c` next weather scenario, `v` toggle verbose output, `q` quit
 QEMU.
 
 ## Real time and the speed switch
@@ -117,14 +117,14 @@ The firmware is laid out like a microcontroller with **32 KiB of RAM**:
 
 ```
 Memory region         Used Size  Region Size  %age Used
-           FLASH:       33824 B         1 MB      3.23%
-             RAM:       27824 B        32 KB     84.91%
+           FLASH:       37824 B         1 MB      3.61%
+             RAM:       28912 B        32 KB     88.23%
 ```
 
 | RAM user | Bytes |
 |----------|-------|
 | Ethernet: 4 receive + 2 transmit buffers of 1526 B, plus rings | 9 400 |
-| Reading log: 256 records, packed into 40 B each | 10 260 |
+| Reading log: 256 records, packed into 44 B each | 11 290 |
 | IP stack frame copies (receive + transmit), in `.data` | 3 090 |
 | Weather model, sensors, tasks, console | ~700 |
 | Stack | 4 096 |
@@ -132,6 +132,36 @@ Memory region         Used Size  Region Size  %age Used
 The stack is filled with a pattern at boot, and the console's `s` status shows the peak use
 since then. After the deepest code paths (console reports, UDP log pages, a 1400-byte ping),
 it peaks at about 870 of 4096 bytes. A test checks it stays under half.
+
+## Weather scenarios
+
+The simulation can run different climates. Each scenario sets the model's means and
+strengths: temperature and its daily swing, humidity, cloudiness, convection, rain, wind,
+gusts, how the wind turns, and surface pressure.
+
+| Scenario | Weather | One simulated day (measured) |
+|----------|---------|------------------------------|
+| `default` | temperate, showers now and then | 5–24 °C, a few mm of rain, ~1013 hPa |
+| `summer_heat` | very hot summer day, dry and mostly clear, afternoon cumulus | 20–36 °C, humidity down to ~22 %, no rain, ~1018 hPa |
+| `winter_high` | cold winter high pressure: calm, clear, frost fog/stratus at night, no convection | −16 to −8 °C, 1031–1044 hPa, wind under 3 m/s |
+| `storm` | severe storm: a deep low deepens and fills, gales, overcast nimbostratus, heavy rain, wind veering SSW → NW | ~966 hPa at its deepest, mean wind 17 m/s, gusts to ~30 m/s, ~55 mm of rain |
+| `thunderstorm` | hot, humid day: towering cumulonimbus cells (each lasting tens of minutes), cloudbursts, gusts, rain cooling | 15–28 °C, cumulonimbus up to ~65 %, gusts to ~13 m/s |
+
+How to choose one:
+- **QEMU command line:** `-fw_cfg name=opt/weather/scenario,string=storm`, read at boot like
+  the speed switch.
+- **CMake `run` target:** `cmake -B build -DSIM_SCENARIO=storm`.
+- **While running:** the UDP command `scenario storm` (`scenarios` lists them all), or the
+  console key `c`.
+- **Plotting tool:** `demo --scenario storm`, `record --scenario storm`.
+
+Switching jumps the slow random processes to the new climate's means; the clock carries on.
+`default` reproduces the original weather exactly, with the same random sequence.
+
+A barometer measures the surface pressure (0.1 hPa). It drifts around the scenario's mean,
+and a storm's low deepens over 12 hours and fills over the next 12. The cloud base (LCL) is
+computed from the actual surface pressure, and the chart's wind panel shows the pressure on
+a right-hand hPa axis.
 
 ## Weather simulation
 
@@ -166,11 +196,12 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"speed":1}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"pressure":1013.2,"speed":1,"scenario":"default"}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
-| `log [sequence]` | one page (up to 10 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
+| `log [sequence]` | one page (up to 9 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
 | `speed [N]` | shows or sets the simulation speed (1…72000) |
+| `scenario [name]` | shows or sets the weather scenario; `scenarios` lists them |
 | `ping` | `pong` |
 | `help` | the list of commands |
 
@@ -225,8 +256,8 @@ python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 -
 ```
 
 The CSV columns are
-`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top`
-(pressures in hPa, cloud amounts in %). Older CSVs without the newer columns at the end
+`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure`
+(cloud levels in hPa, cloud amounts in %, surface pressure in hPa with one decimal). Older CSVs without the newer columns at the end
 still plot: without layer levels the cirrus and altostratus fall back to fixed levels, and
 without any cloud columns there's no cloud panel.
 
@@ -299,6 +330,7 @@ UART and over Ethernet:
 | `console.robot` | every console command, history capping, averages, the quit exit code |
 | `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, cloud layers at their levels, afternoon cumulus, cumulonimbus only in rain-bearing cloud, high and middle layers drifting and thickening, stratus in humid air, nimbostratus only with rain-bearing cloud, lower cloud base in humid air, daily rain totals, the log and fast-forward |
 | `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
+| `scenarios.robot` | each scenario's character over a simulated day (heat, cold high pressure, storm low/gales/rain/veering, thunderstorm cumulonimbus/cloudbursts), the boot switch, the commands and the console key |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
 | `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, flash size budget, RAM within 32 KiB, `.data` loaded from flash |

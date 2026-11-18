@@ -40,6 +40,7 @@ void console_task::print_help()
             "  d  dump the last 8 records\n"
             "  n  network status\n"
             "  +  faster simulation, -  slower (1x = real time)\n"
+            "  c  next weather scenario\n"
             "  v  toggle verbose output\n"
             "  q  quit QEMU (semihosting)\n";
 }
@@ -67,7 +68,8 @@ void console_task::print_status(uint64_t now_ms)
     _out << "--- status @ " << now_ms << " ms ---\n";
     if(_station.has_reading())
         _out << "weather: " << _station.latest() << '\n';
-    _out << "stack: peak " << runtime::stack_peak() << " of "
+    _out << "scenario: " << _station.scenario().name << '\n'
+         << "stack: peak " << runtime::stack_peak() << " of "
          << runtime::stack_size() << " bytes\n"
          << "speed: " << _station.speed() << "x\n"
          << "log: " << _station.log().size() << " records, next sequence "
@@ -88,7 +90,7 @@ void console_task::print_weather()
     const weather_reading& r = _station.latest();
     const weather_reading mean = _station.interval_mean();
     _out << "--- weather, day " << r.day << ' ' << r.time << ", speed "
-         << _station.speed() << "x ---\n"
+         << _station.speed() << "x, " << _station.scenario().name << " ---\n"
          << "temperature:    " << r.temperature << " (10-min mean "
          << mean.temperature << ")\n"
          << "humidity:       " << r.humidity << " (10-min mean "
@@ -99,6 +101,8 @@ void console_task::print_weather()
          << mean.wind_direction << ")\n"
          << "rain:           " << mean.rain << " in this interval (today "
          << r.rain_today << ")\n"
+         << "pressure:       " << r.pressure << " (10-min mean "
+         << mean.pressure << ")\n"
          << "cloud cover:    " << r.cloud_cover << " (10-min mean "
          << mean.cloud_cover << ")\n"
          << "cloud layers:   cirrus " << r.clouds.cirrus << " ("
@@ -147,6 +151,16 @@ void console_task::change_speed(bool faster)
     _out << "speed " << _station.speed() << "x\n";
 }
 
+void console_task::next_scenario()
+{
+    size_t i = 0;
+    while(i < SCENARIO_COUNT && &SCENARIOS[i] != &_station.scenario())
+        ++i;
+    const weather_scenario& next = SCENARIOS[(i + 1) % SCENARIO_COUNT];
+    _station.set_scenario(next);
+    _out << "scenario " << next.name << ": " << next.description << '\n';
+}
+
 void console_task::run(uint64_t now_ms)
 {
     char c;
@@ -172,6 +186,9 @@ void console_task::run(uint64_t now_ms)
         case '+':
         case '-':
             change_speed(c == '+');
+            break;
+        case 'c':
+            next_scenario();
             break;
         case 'v':
             _settings.verbose = !_settings.verbose;

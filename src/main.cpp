@@ -76,6 +76,27 @@ void apply_speed_switch()
                                  : ", default\n");
 }
 
+// The scenario switch: -fw_cfg name=opt/weather/scenario,string=<name>
+void apply_scenario_switch()
+{
+    uint8_t text[32] = {};
+    const int32_t size =
+        hal::fw_cfg::read_file("opt/weather/scenario", {text, sizeof(text)});
+    size_t length = 0;
+    while(size > 0 && length < static_cast<size_t>(size) &&
+          length < sizeof(text) && text[length] > ' ')
+        ++length;
+    const weather_scenario* chosen =
+        size > 0 ? find_scenario({text, length}) : nullptr;
+    if(chosen)
+        station.set_scenario(*chosen);
+    serial_console << "scenario: " << station.scenario().name << " ("
+                   << station.scenario().description << ")"
+                   << (chosen     ? ", from QEMU -fw_cfg opt/weather/scenario\n"
+                       : size > 0 ? ", unknown name in -fw_cfg, using default\n"
+                                  : ", default\n");
+}
+
 unsigned current_el()
 {
     uint64_t el;
@@ -97,6 +118,7 @@ extern "C" [[noreturn]] void main()
                    << ", no operating system\n";
 
     apply_speed_switch();
+    apply_scenario_switch();
     if(ethernet.init() == hal::virtio_net::status::ready)
         ip_stack.announce();
     command_shell.print_network();

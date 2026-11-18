@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "app/weather_scenario.hpp"
 #include "util/random.hpp"
 
 namespace app
@@ -15,6 +16,7 @@ struct weather_conditions
     int32_t wind_speed;     // 0.01 m/s
     int32_t wind_direction; // degrees, 0..359 (where the wind comes from)
     int32_t rain_rate;      // 0.01 mm/h
+    int32_t pressure;       // surface pressure, 0.1 hPa
     int32_t cloud_cover;    // 0.1 % of the sky (0..1000), all layers
 
     // Cloud layers, each 0..1000 (0.1 % of the sky), at their own levels:
@@ -42,7 +44,9 @@ struct weather_conditions
 };
 
 // Simulated weather. Deterministic daily patterns plus slowly varying random
-// processes, so the data behaves like real weather instead of pure noise:
+// processes, so the data behaves like real weather instead of pure noise. The
+// climate (means and strengths of all of these) comes from the selected
+// weather_scenario; the numbers below are the "default" scenario's:
 //
 // - temperature: daily sine cycle (coldest ~03:00, warmest ~15:00) plus a
 //   slow "weather front" offset that drifts over hours; clouds flatten the
@@ -55,8 +59,10 @@ struct weather_conditions
 //   and dries out over the following hours
 // - wind speed: mean-reverting around a daily mean (windier in the
 //   afternoon), with occasional gusts that decay
-// - wind direction: a prevailing direction that drifts slowly; the vane
-//   swings more in light wind than in strong wind
+// - wind direction: a prevailing direction that drifts slowly (and veers in
+//   a passing storm); the vane swings more in light wind than in strong wind
+// - surface pressure: drifts slowly around the scenario's mean; a storm's
+//   low deepens over 12 hours and fills again
 //
 // The model steps once per simulated minute, whatever the simulation speed;
 // the caller decides how fast simulated time passes (weather_station).
@@ -69,9 +75,6 @@ public:
     static constexpr uint32_t STEP_SECONDS = 60;
     static constexpr int32_t FINE = 1000; // internal resolution of the state
 
-    // Cloudiness (0..1000) above which it rains.
-    static constexpr int32_t RAIN_THRESHOLD = 650;
-
     // Cloud levels (hPa). Cirrus drifts around 270 hPa (~10 km) and
     // altostratus around 580 hPa (~4.5 km), within these limits; cumulus and
     // cumulonimbus grow from the LCL.
@@ -79,12 +82,21 @@ public:
     static constexpr int32_t CIRRUS_HIGHEST = 190;     // ~12 km
     static constexpr int32_t ALTOSTRATUS_LOWEST = 800; // ~2 km
     static constexpr int32_t ALTOSTRATUS_HIGHEST = 420;
-    static constexpr int32_t CB_TOP = 200; // the tropopause
-    static constexpr int32_t SURFACE_PRESSURE = 1013;
+    static constexpr int32_t CB_TOP = 200;              // the tropopause
+    static constexpr int32_t STANDARD_PRESSURE = 10132; // 0.1 hPa
 
     // Advance simulated time; the random processes step once per whole
     // simulated minute.
     void advance_simulated(uint32_t sim_seconds);
+
+    // Switch climate. The slow random processes jump to the new scenario's
+    // means; the clock and the random sequence carry on.
+    void set_scenario(const weather_scenario& scenario);
+
+    const weather_scenario& scenario() const
+    {
+        return *_scenario;
+    }
 
     // Jump to a time of day (0..1439) on the current day. Only the daily
     // patterns change; the slow random processes keep their state.
@@ -107,15 +119,16 @@ public:
     // Rain that has fallen since the last call, in 0.01 mm.
     int32_t take_rain();
 
-    // Deterministic daily patterns (exposed for tests and documentation).
-    static int32_t daily_temperature(uint32_t minute_of_day);
-    static int32_t daily_mean_wind(uint32_t minute_of_day);
-    // Daytime convection, 0 (night) .. 1000 (mid-afternoon).
+    // Daily patterns of the current scenario.
+    int32_t daily_temperature(uint32_t minute_of_day) const;
+    int32_t daily_mean_wind(uint32_t minute_of_day) const;
+    // Daytime convection, 0 (night) .. 1000 (mid-afternoon), unscaled.
     static int32_t daily_convection(uint32_t minute_of_day);
 
-    // Lifting condensation level from relative humidity (0.01 %RH): about
-    // 125 m per degree of dew-point spread, the spread being ~(100 - RH) / 5.
-    static int32_t lcl_hpa(int32_t humidity);
+    // Lifting condensation level (hPa) from relative humidity (0.01 %RH)
+    // and surface pressure (0.1 hPa): about 125 m per degree of dew-point
+    // spread, the spread being ~(100 - RH) / 5.
+    static int32_t lcl_hpa(int32_t humidity, int32_t surface_pressure);
 
     // Tops of the low stratiform layers from their base (the LCL, hPa) and
     // amount (0..1000): thicker the more cloud. Functions of stored values,
@@ -140,8 +153,11 @@ public:
 
 private:
     void step(uint32_t dt_seconds);
+    int32_t cloudiness() const; // low + middle cloud now, per mille
     void update_conditions();
 
+    const weather_scenario* _scenario = &SCENARIOS[0];
+    uint64_t _scenario_start = START_MINUTE * 60; // simulated seconds
     uint64_t _sim_seconds = START_MINUTE * 60;
     uint32_t _unstepped_seconds = 0; // less than a step since the last one
     util::xorshift32 _rng{
@@ -166,6 +182,14 @@ private:
     util::xorshift32 _level_rng{0x1e'7e15u};
     int32_t _cirrus_level = 270 * FINE;
     int32_t _altostratus_level = 580 * FINE;
+    // Surface pressure (0.1 hPa * FINE), with its own generator as well.
+    util::xorshift32 _pressure_rng{0xba'0e7e5u};
+    int32_t _pressure = STANDARD_PRESSURE * FINE;
+    // Convective cells: how much of the afternoon build-up is towering right
+    // now (0..1000 * FINE). Cells grow and collapse within the hour, so
+    // thunderstorms come in bursts. Own generator again.
+    util::xorshift32 _cell_rng{0xce'115eedu};
+    int32_t _cell = 450 * FINE;
     int64_t _rain_fallen = 0; // since take_rain(), in 0.01 mm * 1 s / 1 h
 
     weather_conditions _conditions{};

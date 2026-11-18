@@ -36,21 +36,19 @@ constexpr int32_t FINE = weather_model::FINE;
 
 // Noise per one-minute step. A random walk's spread grows with the square
 // root of time, so these are the 10-minute values divided by sqrt(10).
-constexpr int32_t FRONT_NOISE = 9 * FINE;        // 0.01 C
-constexpr int32_t MOISTURE_NOISE = 32 * FINE;    // 0.01 %RH
-constexpr int32_t CLOUD_TREND_NOISE = 19 * FINE; // per mille
-constexpr int32_t CLOUD_NOISE = 6 * FINE;        // per mille
-constexpr int32_t WIND_NOISE = 13 * FINE;        // 0.01 m/s
-constexpr int32_t PREVAILING_NOISE = 16 * FINE;  // 0.1 degrees
+constexpr int32_t FRONT_NOISE = 9 * FINE;       // 0.01 C
+constexpr int32_t MOISTURE_NOISE = 32 * FINE;   // 0.01 %RH
+constexpr int32_t CLOUD_NOISE = 6 * FINE;       // per mille
+constexpr int32_t WIND_NOISE = 13 * FINE;       // 0.01 m/s
+constexpr int32_t PREVAILING_NOISE = 16 * FINE; // 0.1 degrees
 } // namespace
 
-int32_t weather_model::daily_temperature(uint32_t minute_of_day)
+int32_t weather_model::daily_temperature(uint32_t minute_of_day) const
 {
-    constexpr int32_t MEAN = 1500;     // 15.00 C
-    constexpr int32_t AMPLITUDE = 800; // +/- 8.00 C
-    return MEAN + AMPLITUDE *
-                      util::sin_deg(daily_phase_degrees(minute_of_day)) /
-                      util::SIN_SCALE;
+    return _scenario->temperature_mean +
+           _scenario->temperature_swing *
+               util::sin_deg(daily_phase_degrees(minute_of_day)) /
+               util::SIN_SCALE;
 }
 
 int32_t weather_model::daily_convection(uint32_t minute_of_day)
@@ -60,11 +58,13 @@ int32_t weather_model::daily_convection(uint32_t minute_of_day)
     return s > 0 ? s / 10 : 0;
 }
 
-int32_t weather_model::lcl_hpa(int32_t humidity)
+int32_t weather_model::lcl_hpa(int32_t humidity, int32_t surface_pressure)
 {
-    // Height: 125 m * (100 - RH) / 5 = 25 m per %RH below saturation.
+    // Height: 125 m * (100 - RH) / 5 = 25 m per %RH below saturation; the
+    // standard atmosphere scaled to the actual surface pressure.
     const int32_t metres = (10000 - util::clamp(humidity, 0, 10000)) / 4;
-    return util::standard_pressure_hpa(metres);
+    return util::standard_pressure_hpa(metres) * surface_pressure /
+           STANDARD_PRESSURE;
 }
 
 int32_t weather_model::stratus_top(int32_t lcl, int32_t amount)
@@ -87,13 +87,37 @@ weather_model::levels weather_model::altocumulus_levels(
     return {.base = centre + half, .top = centre - half};
 }
 
-int32_t weather_model::daily_mean_wind(uint32_t minute_of_day)
+int32_t weather_model::daily_mean_wind(uint32_t minute_of_day) const
 {
-    constexpr int32_t MEAN = 300;      // 3.00 m/s
-    constexpr int32_t AMPLITUDE = 200; // +/- 2.00 m/s
-    return MEAN + AMPLITUDE *
-                      util::sin_deg(daily_phase_degrees(minute_of_day)) /
-                      util::SIN_SCALE;
+    return _scenario->wind_mean +
+           _scenario->wind_swing *
+               util::sin_deg(daily_phase_degrees(minute_of_day)) /
+               util::SIN_SCALE;
+}
+
+int32_t weather_model::cloudiness() const
+{
+    // The slow cloud process, plus the cloud afternoon convection builds in
+    // some scenarios. It follows the convection and the cell process, so
+    // thunderstorm cells tower up and collapse within the hour, mostly in
+    // the afternoon.
+    const int32_t convective =
+        _scenario->convective_cloud * daily_convection(minute_of_day()) / 1000 *
+        _scenario->convection / 1000 * (_cell / FINE) / 1000;
+    return util::clamp(_cloud / FINE + convective, 0, 1000);
+}
+
+void weather_model::set_scenario(const weather_scenario& scenario)
+{
+    _scenario = &scenario;
+    _scenario_start = _sim_seconds;
+    _front = _moisture = _wetness = _gust = 0;
+    _cloud_trend = _cloud = scenario.cloud_mean * FINE;
+    _sustained_wind = daily_mean_wind(minute_of_day()) * FINE;
+    _prevailing = scenario.prevailing * FINE;
+    _cirrus = scenario.cirrus_mean * FINE;
+    _pressure = scenario.pressure_mean * FINE;
+    update_conditions();
 }
 
 uint32_t weather_model::day() const
@@ -158,10 +182,10 @@ void weather_model::step(uint32_t dt)
     _cloud_trend = util::clamp(
         revert(
             _cloud_trend,
-            350 * FINE,
+            _scenario->cloud_mean * FINE,
             dt,
             6 * 3600,
-            _rng.gaussian(CLOUD_TREND_NOISE)),
+            _rng.gaussian(_scenario->cloud_trend_noise * FINE)),
         0,
         1000 * FINE);
     _cloud = util::clamp(
@@ -170,7 +194,7 @@ void weather_model::step(uint32_t dt)
         1000 * FINE);
 
     // Wetness builds up within half an hour of rain and dries over hours.
-    const bool raining = _cloud > RAIN_THRESHOLD * FINE;
+    const bool raining = cloudiness() > _scenario->rain_threshold;
     _wetness = raining ? revert(_wetness, 1000 * FINE, dt, 30 * 60, 0)
                        : revert(_wetness, 0, dt, 2 * 3600, 0);
 
@@ -185,17 +209,21 @@ void weather_model::step(uint32_t dt)
         0,
         2000 * FINE);
 
-    // Gusts: halve every 10 minutes (x0.933 per minute); 0.6 % chance per
-    // minute of a new 1-3 m/s gust.
+    // Gusts: halve every 10 minutes (x0.933 per minute); a new gust with
+    // the scenario's chance per minute (default 0.6 %, 1-3 m/s).
     _gust = static_cast<int32_t>(static_cast<int64_t>(_gust) * 933 / 1000);
-    if(_rng.below(1000) < 6)
-        _gust += _rng.between(100, 300) * FINE;
+    if(_rng.below(1000) < static_cast<uint32_t>(_scenario->gust_chance))
+        _gust += _rng.between(_scenario->gust_min, _scenario->gust_max) * FINE;
 
     // Prevailing direction drifts a few degrees per 10 minutes, pulled back
-    // toward SW over half a day.
+    // toward the scenario's direction over half a day. That direction turns
+    // clockwise at the scenario's veering rate (a front passing).
+    const int64_t veered =
+        static_cast<int64_t>(_scenario->veering) * FINE *
+        static_cast<int64_t>(_sim_seconds - _scenario_start) / 3600;
     _prevailing = revert(
         _prevailing,
-        2250 * FINE,
+        _scenario->prevailing * FINE + static_cast<int32_t>(veered),
         dt,
         12 * 3600,
         _rng.gaussian(PREVAILING_NOISE));
@@ -210,7 +238,7 @@ void weather_model::step(uint32_t dt)
     _cirrus = util::clamp(
         revert(
             _cirrus,
-            250 * FINE,
+            _scenario->cirrus_mean * FINE,
             dt,
             8 * 3600,
             _cirrus_rng.gaussian(CIRRUS_NOISE)),
@@ -237,6 +265,29 @@ void weather_model::step(uint32_t dt)
         500 * FINE,
         660 * FINE);
 
+    // Surface pressure drifts around the scenario's mean (a few hPa); a
+    // storm's low deepens over 12 hours and fills over the next 12.
+    const auto since_start = static_cast<int32_t>(
+        (_sim_seconds - _scenario_start) % SECONDS_PER_DAY);
+    const int32_t dip = _scenario->pressure_dip *
+                        (util::SIN_SCALE - util::cos_deg(since_start / 240)) /
+                        (2 * util::SIN_SCALE);
+    _pressure = util::clamp(
+        revert(
+            _pressure,
+            (_scenario->pressure_mean - dip) * FINE,
+            dt,
+            3 * 3600,
+            _pressure_rng.gaussian(3 * FINE)),
+        8700 * FINE,
+        10850 * FINE);
+
+    // Convective cells: mean-reverting over ~40 minutes, so they come and go.
+    _cell = util::clamp(
+        revert(_cell, 450 * FINE, dt, 40 * 60, _cell_rng.gaussian(67 * FINE)),
+        0,
+        1000 * FINE);
+
     // Rain falls at the step's rate (computed from the new cloudiness).
     update_conditions();
     _rain_fallen += static_cast<int64_t>(_conditions.rain_rate) * dt;
@@ -245,25 +296,33 @@ void weather_model::step(uint32_t dt)
 void weather_model::update_conditions()
 {
     const uint32_t minute = minute_of_day();
-    const int32_t cloud = _cloud / FINE;
+    const int32_t cloud = cloudiness();
 
-    // Rain: 0 below the threshold, then 0.015 mm/h per step of cloudiness
-    // (up to ~5 mm/h under a full overcast).
+    const weather_scenario& sc = *_scenario;
+
+    // Rain: 0 below the threshold, then rain_per_cloud per mille of cloud
+    // above it (default 0.015 mm/h per step: up to ~5 mm/h).
     const int32_t rain_rate =
-        cloud > RAIN_THRESHOLD ? (cloud - RAIN_THRESHOLD) * 3 / 2 : 0;
+        cloud > sc.rain_threshold
+            ? (cloud - sc.rain_threshold) * sc.rain_per_cloud / 1000
+            : 0;
 
     // Clouds flatten the daily swing (to 75 % under full overcast) and rain
     // cools the air (1 C at 4 mm/h).
-    const int32_t clear_sky_swing = daily_temperature(minute) - 1500;
-    const int32_t temperature = 1500 +
+    const int32_t clear_sky_swing =
+        daily_temperature(minute) - sc.temperature_mean;
+    const int32_t temperature = sc.temperature_mean +
                                 clear_sky_swing * (1000 - cloud / 4) / 1000 +
                                 _front / FINE - rain_rate / 4;
 
-    // Relative humidity drops ~3 %RH per degree of warming above the mean,
-    // rises with cloudiness (+/- 7 %RH) and with wetness (up to +25 %RH).
-    const int32_t humidity = 6500 - 3 * (temperature - 1500) +
-                             _moisture / FINE + (cloud - 350) * 2 +
-                             _wetness / FINE * 5 / 2;
+    // Relative humidity drops with warming above the mean (default ~3 %RH
+    // per degree), rises with cloudiness (+/- 7 %RH) and with wetness (up
+    // to +25 %RH).
+    const int32_t humidity =
+        sc.humidity_base -
+        sc.humidity_per_degree * (temperature - sc.temperature_mean) +
+        _moisture / FINE + (cloud - sc.cloud_mean) * 2 +
+        _wetness / FINE * 5 / 2;
 
     // Cloud layers. The cloudiness that makes rain is low and middle cloud,
     // split into types (the total, and so the rain, doesn't change):
@@ -276,11 +335,13 @@ void weather_model::update_conditions()
     //   Middle: altostratus sheet, with a share of lumpy altocumulus that
     //   grows in the daytime
     const int32_t relative_humidity = util::clamp(humidity, 1500, 10000);
-    const int32_t convection = daily_convection(minute);
+    const int32_t convection = daily_convection(minute) * sc.convection / 1000;
     int32_t cumulonimbus = 0;
-    if(cloud > 700 && convection > 300)
-        cumulonimbus =
-            util::clamp((cloud - 700) * 3 * convection / 1000, 0, cloud);
+    if(cloud > sc.storm_cloud && convection > sc.storm_convection)
+        cumulonimbus = util::clamp(
+            (cloud - sc.storm_cloud) * 3 * convection / 1000,
+            0,
+            cloud);
     const int32_t layered = cloud - cumulonimbus;
     const int32_t nimbostratus =
         rain_rate > 0 ? util::clamp((cloud - 600) * 3, 0, layered) *
@@ -300,7 +361,8 @@ void weather_model::update_conditions()
     const int32_t altostratus = middle - altocumulus;
     const int32_t cirrus = _cirrus / FINE;
 
-    const int32_t lcl = lcl_hpa(relative_humidity);
+    const int32_t pressure = _pressure / FINE;
+    const int32_t lcl = lcl_hpa(relative_humidity, pressure);
     // Cumulus towers deepen with convection: 80..350 hPa above the base.
     const int32_t cumulus_top =
         util::clamp(lcl - 80 - 270 * convection / 1000, 450, lcl);
@@ -334,6 +396,7 @@ void weather_model::update_conditions()
         .wind_direction =
             util::wrap(_prevailing / FINE / 10 + _vane_swing, 360),
         .rain_rate = rain_rate,
+        .pressure = pressure,
         .cloud_cover = sky,
         .cirrus = cirrus,
         .altostratus = altostratus,

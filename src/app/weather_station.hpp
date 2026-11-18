@@ -56,11 +56,12 @@ struct weather_reading
                          // the 10-minute interval
     centi_mm rain_today; // since midnight
     percent cloud_cover; // of the sky, all layers
+    deci_hectopascal pressure; // surface pressure
     cloud_layers clouds;
 };
 
 // "06:10:05 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW |
-//  rain 0.40 mm | cloud 63 %"
+//  rain 0.40 mm | cloud 63 % | 1013.2 hPa"
 util::text_stream& operator<<(util::text_stream& out, const weather_reading& r);
 
 // Measurement characteristics of a physical sensor: it sees the true value
@@ -98,8 +99,8 @@ public:
     // 256 records, 42.7 simulated hours. (ring_buffer needs a power of two.)
     static constexpr size_t CAPACITY = 256;
 
-    // One record, packed into small integers to fit the RAM budget (40
-    // bytes instead of a full weather_reading's 116). rain_today and the
+    // One record, packed into small integers to fit the RAM budget (44
+    // bytes instead of a full weather_reading's 120). rain_today and the
     // derived cloud levels aren't kept.
     struct entry
     {
@@ -126,6 +127,7 @@ public:
         uint8_t stratocumulus;     // %
         uint8_t nimbostratus;      // %
         uint8_t altocumulus;       // %
+        uint16_t pressure;         // 0.1 hPa
 
         weather_reading reading() const;
     };
@@ -202,6 +204,14 @@ public:
     // minute and logging the records), independent of the speed.
     void fast_forward(uint32_t minutes);
 
+    // Switch the weather scenario (and take a fresh sample).
+    void set_scenario(const weather_scenario& scenario);
+
+    const weather_scenario& scenario() const
+    {
+        return _model.scenario();
+    }
+
     bool has_reading() const
     {
         return _has_reading;
@@ -235,7 +245,8 @@ private:
     sensor_model _wind_vane{2, 1, -720, 1080, 0x7e57'0004u};    // 1 deg
     sensor_model _sky_imager{2, 1, 0, 100, 0x7e57'0005u};       // 1 %
     sensor_model _cloud_sensor{1, 1, 0, 100, 0x7e57'0006u};     // layers, 1 %
-    sensor_model _ceilometer{2, 1, 150, 1013, 0x7e57'0007u};    // levels, hPa
+    sensor_model _ceilometer{2, 1, 150, 1100, 0x7e57'0007u};    // levels, hPa
+    sensor_model _barometer{1, 1, 8700, 10850, 0x7e57'0008u};   // 0.1 hPa
 
     uint32_t _speed = DEFAULT_SPEED;
     uint64_t _last_update_ms = 0;
@@ -246,6 +257,7 @@ private:
     int64_t _sum_humidity = 0;
     int64_t _sum_wind_speed = 0;
     int64_t _sum_cloud_cover = 0;
+    int64_t _sum_pressure = 0;
     int64_t _sum_cirrus = 0;
     int64_t _sum_altostratus = 0;
     int64_t _sum_cumulus = 0;

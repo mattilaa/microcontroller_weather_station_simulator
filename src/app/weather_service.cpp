@@ -81,6 +81,7 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << "\",\"rain\":" << util::fixed(r.rain.value, 2)
         << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2)
         << ",\"cloud_cover\":" << r.cloud_cover.value
+        << ",\"pressure\":" << util::fixed(r.pressure.value, 1)
         << ",\"lcl\":" << r.clouds.lcl.value
         << ",\"cirrus\":" << r.clouds.cirrus.value
         << ",\"altostratus\":" << r.clouds.altostratus.value
@@ -107,7 +108,8 @@ void write_json(util::text_stream& out, const weather_reading& r)
 // cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,
 // cirrus_base,cirrus_top,altostratus_base,altostratus_top,
 // stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,
-// stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top
+// stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,
+// pressure
 void write_csv_row(util::text_stream& out, const weather_log::entry& e)
 {
     const weather_reading r = e.reading();
@@ -127,7 +129,8 @@ void write_csv_row(util::text_stream& out, const weather_log::entry& e)
         << c.nimbostratus.value << ',' << c.altocumulus.value << ','
         << c.stratus_top.value << ',' << c.stratocumulus_top.value << ','
         << c.nimbostratus_top.value << ',' << c.altocumulus_base.value << ','
-        << c.altocumulus_top.value << '\n';
+        << c.altocumulus_top.value << ',' << util::fixed(r.pressure.value, 1)
+        << '\n';
 }
 
 // A page of the log, starting at sequence number `from`:
@@ -139,7 +142,7 @@ void write_log_page(
     const weather_log& log,
     uint32_t from)
 {
-    constexpr size_t ROWS_PER_PAGE = 10; // 10 rows of < 140 bytes fit a frame
+    constexpr size_t ROWS_PER_PAGE = 9; // 9 rows of < 150 bytes fit a frame
     const size_t first = log.find(from);
     const size_t available = log.size() - first;
     const size_t count = available < ROWS_PER_PAGE ? available : ROWS_PER_PAGE;
@@ -165,7 +168,8 @@ size_t weather_service::handle(
         if(_station.has_reading())
         {
             write_json(out, _station.latest());
-            out << ",\"speed\":" << _station.speed() << "}\n";
+            out << ",\"speed\":" << _station.speed() << ",\"scenario\":\""
+                << _station.scenario().name << "\"}\n";
         }
         else
             out << "error: no reading yet\n";
@@ -207,6 +211,27 @@ size_t weather_service::handle(
                 << clock_minute{r.time.second_of_day / 60} << '\n';
         }
     }
+    else if(equals(command, "scenarios"))
+    {
+        out << "scenarios:";
+        for(const weather_scenario& s : SCENARIOS)
+            out << ' ' << s.name;
+        out << '\n';
+    }
+    else if(equals(command, "scenario"))
+        out << "scenario " << _station.scenario().name << ": "
+            << _station.scenario().description << '\n';
+    else if(starts_with(command, "scenario "))
+    {
+        const weather_scenario* chosen = find_scenario(command.subspan(9));
+        if(!chosen)
+            out << "error: unknown scenario (try: scenarios)\n";
+        else
+        {
+            _station.set_scenario(*chosen);
+            out << "ok scenario " << chosen->name << '\n';
+        }
+    }
     else if(equals(command, "speed"))
         out << "speed " << _station.speed() << '\n';
     else if(starts_with(command, "speed "))
@@ -226,7 +251,8 @@ size_t weather_service::handle(
         out << "pong\n";
     else if(equals(command, "help"))
         out << "commands: weather, time HH:MM, log [sequence], "
-               "advance <minutes>, speed [N], ping, help\n";
+               "advance <minutes>, speed [N], scenario [name], scenarios, "
+               "ping, help\n";
     else
         out << "error: unknown command\n";
 

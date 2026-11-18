@@ -29,6 +29,7 @@ Prints Command Help On Boot
     Wait For Output    d\\s+dump the last 8 records
     Wait For Output    n\\s+network status
     Wait For Output    \\+\\s+faster simulation
+    Wait For Output    c\\s+next weather scenario
     Wait For Output    v\\s+toggle verbose output
     Wait For Output    q\\s+quit QEMU
 

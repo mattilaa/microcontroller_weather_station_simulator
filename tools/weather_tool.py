@@ -47,8 +47,9 @@ COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_
            "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
            "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
            "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top", "stratocumulus_top",
-           "nimbostratus_top", "altocumulus_base", "altocumulus_top"]
-CLOUD_LAYER_COLUMNS = COLUMNS[COLUMNS.index("lcl"):]
+           "nimbostratus_top", "altocumulus_base", "altocumulus_top", "pressure"]
+CLOUD_LAYER_COLUMNS = COLUMNS[COLUMNS.index("lcl"):COLUMNS.index("pressure")]
+SCENARIOS = ["default", "summer_heat", "winter_high", "storm", "thunderstorm"]
 SERVICE_PORT = 5000
 
 # ---- import --------------------------------------------------------------------
@@ -158,6 +159,7 @@ def load(path):
                     # Older CSVs (before the cloud sensors) lack these columns.
                     "cloud_cover": float(row["cloud_cover"]) if row.get("cloud_cover") else None,
                     **{key: float(row[key]) if row.get(key) else None for key in CLOUD_LAYER_COLUMNS},
+                    "pressure": float(row["pressure"]) if row.get("pressure") else None,
                 }
             )
     readings.sort(key=lambda r: r["when"])
@@ -229,6 +231,7 @@ PRESSURE_TICKS = [1000, 850, 700, 500, 300, 200]
 # Standard-atmosphere heights of those levels, for the km scale.
 PRESSURE_KM = {1000: "0.1", 850: "1.5", 700: "3.0", 500: "5.6", 300: "9.2", 200: "11.8"}
 WIND_COLOR = "#2f4f6f"
+PRESSURE_COLOR = "#7a3e9d"
 GRID_COLOR = "#dddddd"
 
 
@@ -431,6 +434,24 @@ def draw(fig, readings, hours=24, title=None):
     ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Wind speed")
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
 
+    # Surface pressure on the right-hand axis (high in an anticyclone, deep
+    # and falling as a storm's low passes).
+    pressures = [r.get("pressure") for r in readings]
+    if any(p is not None for p in pressures):
+        ax_p = ax_w.twinx()
+        points = [(t, p) for t, p in zip(times, pressures) if p is not None]
+        values = [p for _, p in points]
+        ax_p.plot([t for t, _ in points], values, color=PRESSURE_COLOR, lw=1.4, zorder=3)
+        low, high = math.floor(min(values) / 5) * 5 - 5, math.ceil(max(values) / 5) * 5 + 5
+        ax_p.set_ylim(low, low + (high - low) * 1.7)  # keep clear of the arrows
+        ax_p.set_yticks(range(int(low), int(high) + 1, max(5, int((high - low) // 10 * 5) or 5)))
+        ax_p.tick_params(colors=PRESSURE_COLOR, labelsize=10, length=0)
+        for side in ("top", "left", "right"):
+            ax_p.spines[side].set_visible(False)
+        ax_p.spines["bottom"].set_visible(False)
+        ax_p.text(1, 1.02, "hPa", transform=ax_p.transAxes, ha="left", va="bottom", fontsize=12,
+                  color=PRESSURE_COLOR)
+
     # Hourly arrows pointing where the wind blows to (FMI style), with the
     # hourly mean speed underneath. (With many hours, every other one.)
     row = transforms.blended_transform_factory(ax_w.transData, ax_w.transAxes)
@@ -485,9 +506,10 @@ def free_udp_port():
         return s.getsockname()[1]
 
 
-def start_qemu(qemu, firmware, host_port, speed=None):
+def start_qemu(qemu, firmware, host_port, speed=None, scenario=None):
     """Run the firmware with its UDP service forwarded to `host_port`. `speed`
-    sets the simulation speed switch (QEMU -fw_cfg opt/weather/speed)."""
+    and `scenario` set the firmware's switches (QEMU -fw_cfg
+    opt/weather/speed and opt/weather/scenario)."""
     command = [
         qemu, "-M", "virt", "-cpu", "cortex-a53", "-m", "128M",
         "-nographic", "-semihosting", "-nic", "none",
@@ -498,6 +520,8 @@ def start_qemu(qemu, firmware, host_port, speed=None):
     ]
     if speed:
         command += ["-fw_cfg", f"name=opt/weather/speed,string={speed}"]
+    if scenario:
+        command += ["-fw_cfg", f"name=opt/weather/scenario,string={scenario}"]
     return subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 
@@ -597,6 +621,7 @@ def main(argv=None):
     p_rec.add_argument("--out", default="weather.png")
     p_rec.add_argument("--plot-hours", type=int, default=48, help="chart the last N hours (0 = all)")
     p_rec.add_argument("--live", action="store_true", help="show a live chart window as well")
+    p_rec.add_argument("--scenario", choices=SCENARIOS, help="weather scenario (default: the firmware's default)")
 
     p_demo = sub.add_parser("demo", help="start QEMU, fast-forward, import and plot")
     p_demo.add_argument("--firmware", default="build/firmware.elf")
@@ -605,6 +630,7 @@ def main(argv=None):
     p_demo.add_argument("--csv", default="weather.csv")
     p_demo.add_argument("--out", default="weather.png")
     p_demo.add_argument("--hours", type=int, default=24)
+    p_demo.add_argument("--scenario", choices=SCENARIOS, help="weather scenario (default: the firmware's default)")
 
     args = parser.parse_args(argv)
 
@@ -624,16 +650,19 @@ def main(argv=None):
             client.wait_until_ready()
             if args.speed:
                 print(client.command(f"speed {args.speed}").strip())
+            if args.scenario:
+                print(client.command(f"scenario {args.scenario}").strip())
         else:
             if os.path.exists(args.csv):
                 os.remove(args.csv)  # a fresh QEMU starts a fresh log
             port = free_udp_port()
-            qemu = start_qemu(args.qemu, args.firmware, port, args.speed)
+            qemu = start_qemu(args.qemu, args.firmware, port, args.speed, args.scenario)
             client = WeatherClient(port=port)
             client.wait_until_ready()
         try:
+            scenario = client.command("scenario").split()[1].rstrip(":")
             record(client, args.csv, args.out, args.hours, args.interval, args.plot_hours, args.live,
-                   title=f"simulated weather station, {client.command('speed').split()[-1]}x")
+                   title=f"simulated weather station: {scenario}, {client.command('speed').split()[-1]}x")
         finally:
             if qemu:
                 qemu.kill()
@@ -642,16 +671,17 @@ def main(argv=None):
         if os.path.exists(args.csv):
             os.remove(args.csv)  # a fresh QEMU starts a fresh log
         port = free_udp_port()
-        qemu = start_qemu(args.qemu, args.firmware, port)
+        qemu = start_qemu(args.qemu, args.firmware, port, scenario=args.scenario)
         try:
             client = WeatherClient(port=port)
             client.wait_until_ready()
+            scenario = client.command("scenario").split()[1].rstrip(":")
             added = fetch(client, args.csv, args.minutes)
             print(f"Imported {added} readings into {args.csv}")
         finally:
             qemu.kill()
             qemu.wait()
-        plot(load(args.csv), args.out, args.hours, title="simulated weather station")
+        plot(load(args.csv), args.out, args.hours, title=f"simulated weather station: {scenario}")
         print(f"Wrote {args.out}")
     return 0
 

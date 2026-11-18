@@ -80,6 +80,7 @@ private:
     void print_weather();
     void print_history();
     void change_speed(bool faster);
+    void next_scenario();
 
     const hal::pl011& _uart;
     util::text_stream& _out;

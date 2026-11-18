@@ -63,6 +63,19 @@ Record Keeps Up At The Fastest Speed
     ${consecutive}=    Evaluate    $sequences == list(range($sequences[0], $sequences[0] + len($sequences)))
     Should Be True    ${consecutive}    msg=Records missing from the import
 
+Demo Runs A Weather Scenario
+    [Documentation]    --scenario reaches the firmware through the QEMU switch.
+    ${csv}=    Set Variable    ${OUTPUT DIR}/storm_weather.csv
+    ${result}=    Run Process    ${PYTHON}    ${TOOL}    demo
+    ...    --firmware    ${FIRMWARE}    --qemu    ${QEMU}    --scenario    storm
+    ...    --minutes    360    --csv    ${csv}    --out    ${OUTPUT DIR}/storm_weather.png
+    ...    timeout=120s    stderr=STDOUT
+    Should Be Equal As Integers    ${result.rc}    0    msg=${result.stdout}
+    ${text}=    Get File    ${csv}
+    ${pressures}=    Evaluate    [float(l.split(",")[-1]) for l in $text.splitlines()[1:] if l.strip()]
+    Should Be True    len($pressures) >= 36
+    Should Be True    min($pressures) < 1000    msg=No storm low: ${pressures}
+
 Plot Works On An Imported CSV
     ${csv}=    Set Variable    ${OUTPUT DIR}/demo_weather.csv
     ${png}=    Set Variable    ${OUTPUT DIR}/replot.png

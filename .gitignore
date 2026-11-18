@@ -1,0 +1,44 @@
+# CMake build directories
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeUserPresets.json
+compile_commands.json
+Testing/
+.cmake/
+
+# Build outputs
+*.o
+*.obj
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.d
+
+# Ninja / Make
+.ninja_deps
+.ninja_log
+build.ninja
+
+# Debugger / QEMU
+.gdb_history
+.lldb-history
+*.core
+qemu.log
+
+# Editors and IDEs
+.vscode/
+.idea/
+.cache/
+.clangd
+*.swp
+*~
+
+# macOS
+.DS_Store

@@ -1,3 +1,5 @@
+[![CI](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml/badge.svg)](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml)
+
 # Microcontroller example
 
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style

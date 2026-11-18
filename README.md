@@ -7,7 +7,7 @@ main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C
 and built with CMake.
 
 It's a small simulated **weather station**: temperature, humidity, wind speed, wind
-direction, rain and cloud cover sensors read a simulated weather model. Readings are printed on the
+direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the
 UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
 the Finnish Meteorological Institute's forecast chart:
@@ -117,14 +117,14 @@ The firmware is laid out like a microcontroller with **32 KiB of RAM**:
 
 ```
 Memory region         Used Size  Region Size  %age Used
-           FLASH:       25976 B         1 MB      2.48%
-             RAM:       27504 B        32 KB     83.94%
+           FLASH:       31200 B         1 MB      2.98%
+             RAM:       26688 B        32 KB     81.45%
 ```
 
 | RAM user | Bytes |
 |----------|-------|
 | Ethernet: 4 receive + 2 transmit buffers of 1526 B, plus rings | 9 400 |
-| Reading log: 256 records × 40 B | 10 260 |
+| Reading log: 256 records, packed into 36 B each | 9 230 |
 | IP stack frame copies (receive + transmit), in `.data` | 3 090 |
 | Weather model, sensors, tasks, console | ~700 |
 | Stack | 4 096 |
@@ -141,7 +141,9 @@ it peaks at about 870 of 4096 bytes. A test checks it stays under half.
 | Humidity | falls about 3 %RH per °C of warming (relative humidity drops as air warms), plus its own slow moisture drift |
 | Wind speed | pulled toward a daily mean (1–5 m/s, windiest in the afternoon) with random variation, plus occasional gusts that decay |
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
-| Cloud cover | follows a slowly wandering trend (35 % on average); showers build and clear over hours. A cloud cover sensor (sky imager / ceilometer) reports it in whole percent |
+| Cloud cover | low and middle cloud follows a slowly wandering trend; showers build and clear over hours. The sky imager reports total cover in whole percent, counting thin cirrus half |
+| Cloud layers | each type at its own level: **cirrus** high up (centred near 270 hPa / 10 km, drifting up and down, thicker when there's more of it); **altostratus**, a middle sheet (centred near 580 hPa / 4.5 km, also drifting and thickening, and its base sinks in steady rain); **cumulus** from the cloud base upward, growing with afternoon convection and gone at night; **cumulonimbus**, in heavy convective rain, from the cloud base right up to the tropopause (200 hPa) |
+| Cloud base (LCL) | the lifting condensation level, from humidity: about 125 m per °C of dew-point spread, converted to hPa with a standard-atmosphere table. It's low in humid air and rain, and higher on dry afternoons |
 | Rain | falls when cloudiness passes a threshold, harder the cloudier it gets (up to ~5 mm/h); clouds flatten the daily temperature swing, rain cools the air, and humidity builds up during rain and dries out over the following hours |
 
 The slow parts are mean-reverting random processes (Ornstein–Uhlenbeck style). Each
@@ -158,9 +160,9 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"speed":1}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"speed":1}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
-| `log [sequence]` | one page (up to 20 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
+| `log [sequence]` | one page (up to 14 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
 | `speed [N]` | shows or sets the simulation speed (1…72000) |
 | `ping` | `pong` |
@@ -180,14 +182,21 @@ The firmware keeps the last 256 records (42.7 simulated hours) in its log.
 matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlaitos.fi/saa/helsinki?forecast=daily):
 
 - **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
-  humidity), and hourly precipitation bars on the right-hand mm axis. Cloud cover dims the
-  background behind them: a smooth blue-grey "sky", untinted in fair weather (under 15 %)
-  and darker toward overcast. It's smoothed over about half an hour and drawn underneath
-  everything, so it never hides a measurement.
+  humidity), and hourly precipitation bars on the right-hand mm axis.
+- **Cloud panel** (with cloud layer data): a time-height cross-section on a log-pressure
+  axis, 1000 hPa at the bottom to 200 hPa at the top, with km on the right. Each 10-minute
+  record is one column, with no smoothing between records. Every cloud type spans its own
+  base and top for that record, more opaque the more cloud there is:
+  - cirrus is wispy and densest in its middle, drifting around 10 km
+  - altostratus is a sheet that undulates, and lowers in steady rain
+  - cumulus has a flat base on the LCL and a soft, billowing top
+  - cumulonimbus is a dark tower from the cloud base to the tropopause
+
+  The LCL (cloud base) is a dashed line.
 - **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
-  the hourly mean speed under each arrow. The cloud cover shading continues behind it.
-- **Time axis:** a dashed line at each midnight, plus alternating hour bands when there is
-  no cloud cover data (the sky shading replaces them).
+  the hourly mean speed under each arrow.
+- **Time axis:** a dashed line at each midnight; the temperature panel also has
+  alternating hour bands.
 
 With the [virtual environment](#python-virtual-environment) set up and active:
 
@@ -208,9 +217,11 @@ python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
 python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 --hours 48
 ```
 
-The CSV columns are `seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover`.
-CSVs from before the cloud cover sensor (without the last column) still plot, just without
-shading.
+The CSV columns are
+`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top`
+(pressures in hPa, cloud amounts in %). Older CSVs without the newer columns at the end
+still plot: without layer levels the cirrus and altostratus fall back to fixed levels, and
+without any cloud columns there's no cloud panel.
 
 `fetch` and `record` append only records that aren't in the CSV yet, so they can be run
 repeatedly while the firmware keeps measuring. `record` with its own QEMU starts a fresh
@@ -279,7 +290,7 @@ UART and over Ethernet:
 | `boot.robot` | banner, EL1, network bring-up, running without a NIC, rejecting a legacy virtio device |
 | `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
-| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, daily rain totals, the log and fast-forward |
+| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, cloud layers at their levels, afternoon cumulus, cumulonimbus only in rain-bearing cloud, high and middle layers drifting and thickening, lower cloud base in humid air, daily rain totals, the log and fast-forward |
 | `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |

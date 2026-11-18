@@ -15,7 +15,19 @@ struct weather_conditions
     int32_t wind_speed;     // 0.01 m/s
     int32_t wind_direction; // degrees, 0..359 (where the wind comes from)
     int32_t rain_rate;      // 0.01 mm/h
-    int32_t cloud_cover;    // 0.1 % of the sky (0..1000)
+    int32_t cloud_cover;    // 0.1 % of the sky (0..1000), all layers
+
+    // Cloud layers, each 0..1000 (0.1 % of the sky), at their own levels:
+    int32_t cirrus;       // high ice cloud, cirrus_base..cirrus_top hPa
+    int32_t altostratus;  // mid-level sheet, altostratus_base..top hPa
+    int32_t cumulus;      // convective, from the LCL up to cumulus_top
+    int32_t cumulonimbus; // thunderstorm cloud, from the LCL to CB_TOP
+    int32_t lcl;          // lifting condensation level (cloud base), hPa
+    int32_t cumulus_top;  // hPa
+    int32_t cirrus_base;  // hPa: the high and middle layers drift up and down
+    int32_t cirrus_top;   // and get thicker the more of them there is
+    int32_t altostratus_base;
+    int32_t altostratus_top;
 };
 
 // Simulated weather. Deterministic daily patterns plus slowly varying random
@@ -49,6 +61,16 @@ public:
     // Cloudiness (0..1000) above which it rains.
     static constexpr int32_t RAIN_THRESHOLD = 650;
 
+    // Cloud levels (hPa). Cirrus drifts around 270 hPa (~10 km) and
+    // altostratus around 580 hPa (~4.5 km), within these limits; cumulus and
+    // cumulonimbus grow from the LCL.
+    static constexpr int32_t CIRRUS_LOWEST = 420;      // ~7 km
+    static constexpr int32_t CIRRUS_HIGHEST = 190;     // ~12 km
+    static constexpr int32_t ALTOSTRATUS_LOWEST = 800; // ~2 km
+    static constexpr int32_t ALTOSTRATUS_HIGHEST = 420;
+    static constexpr int32_t CB_TOP = 200; // the tropopause
+    static constexpr int32_t SURFACE_PRESSURE = 1013;
+
     // Advance simulated time; the random processes step once per whole
     // simulated minute.
     void advance_simulated(uint32_t sim_seconds);
@@ -77,6 +99,12 @@ public:
     // Deterministic daily patterns (exposed for tests and documentation).
     static int32_t daily_temperature(uint32_t minute_of_day);
     static int32_t daily_mean_wind(uint32_t minute_of_day);
+    // Daytime convection, 0 (night) .. 1000 (mid-afternoon).
+    static int32_t daily_convection(uint32_t minute_of_day);
+
+    // Lifting condensation level from relative humidity (0.01 %RH): about
+    // 125 m per degree of dew-point spread, the spread being ~(100 - RH) / 5.
+    static int32_t lcl_hpa(int32_t humidity);
 
 private:
     void step(uint32_t dt_seconds);
@@ -97,6 +125,15 @@ private:
     int32_t _gust = 0;                    // 0.01 m/s, decays every step
     int32_t _prevailing = 2250 * FINE;    // 0.1 degrees (starts SW)
     int32_t _vane_swing = 0;              // degrees (not FINE)
+    // High cloud wanders independently. It has its own generator so adding
+    // it didn't change the rest of the weather's random sequence.
+    util::xorshift32 _cirrus_rng{0xc1'7505u};
+    int32_t _cirrus = 250 * FINE; // per mille
+    // Centre levels of the high and middle layers (hPa * FINE). They use
+    // their own generator too, so the cirrus amount sequence is unchanged.
+    util::xorshift32 _level_rng{0x1e'7e15u};
+    int32_t _cirrus_level = 270 * FINE;
+    int32_t _altostratus_level = 580 * FINE;
     int64_t _rain_fallen = 0; // since take_rain(), in 0.01 mm * 1 s / 1 h
 
     weather_conditions _conditions{};

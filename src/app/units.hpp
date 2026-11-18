@@ -28,6 +28,11 @@ struct percent // whole percent, e.g. cloud cover, prints "63 %"
     int32_t value;
 };
 
+struct hectopascal // pressure level, prints "912 hPa"
+{
+    int32_t value;
+};
+
 struct centi_mm // 0.01 mm of precipitation, prints "0.40 mm"
 {
     int32_t value;
@@ -57,6 +62,7 @@ util::text_stream& operator<<(util::text_stream& out, centi_percent h);
 util::text_stream& operator<<(util::text_stream& out, centi_mps s);
 util::text_stream& operator<<(util::text_stream& out, centi_mm r);
 util::text_stream& operator<<(util::text_stream& out, percent p);
+util::text_stream& operator<<(util::text_stream& out, hectopascal p);
 util::text_stream& operator<<(util::text_stream& out, compass_degrees d);
 util::text_stream& operator<<(util::text_stream& out, clock_time t);
 util::text_stream& operator<<(util::text_stream& out, clock_minute t);

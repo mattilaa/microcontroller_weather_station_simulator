@@ -80,21 +80,38 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << ",\"wind_compass\":\"" << compass_point(r.wind_direction.value)
         << "\",\"rain\":" << util::fixed(r.rain.value, 2)
         << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2)
-        << ",\"cloud_cover\":" << r.cloud_cover.value;
+        << ",\"cloud_cover\":" << r.cloud_cover.value
+        << ",\"lcl\":" << r.clouds.lcl.value
+        << ",\"cirrus\":" << r.clouds.cirrus.value
+        << ",\"altostratus\":" << r.clouds.altostratus.value
+        << ",\"cumulus\":" << r.clouds.cumulus.value
+        << ",\"cumulus_top\":" << r.clouds.cumulus_top.value
+        << ",\"cumulonimbus\":" << r.clouds.cumulonimbus.value
+        << ",\"cirrus_base\":" << r.clouds.cirrus_base.value
+        << ",\"cirrus_top\":" << r.clouds.cirrus_top.value
+        << ",\"altostratus_base\":" << r.clouds.altostratus_base.value
+        << ",\"altostratus_top\":" << r.clouds.altostratus_top.value;
 }
 
-// One log row:
-// seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover
+// One log row (new columns go at the end, so old CSVs keep loading):
+// seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,
+// cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,
+// cirrus_base,cirrus_top,altostratus_base,altostratus_top
 void write_csv_row(util::text_stream& out, const weather_log::entry& e)
 {
-    const weather_reading& r = e.reading;
+    const weather_reading r = e.reading();
+    const cloud_layers& c = r.clouds;
     out << e.sequence << ',' << r.day << ','
         << clock_minute{r.time.second_of_day / 60} << ','
         << util::fixed(r.temperature.value, 2) << ','
         << util::fixed(r.humidity.value, 2) << ','
         << util::fixed(r.wind_speed.value, 2) << ',' << r.wind_direction.value
         << ',' << util::fixed(r.rain.value, 2) << ',' << r.cloud_cover.value
-        << '\n';
+        << ',' << c.lcl.value << ',' << c.cirrus.value << ','
+        << c.altostratus.value << ',' << c.cumulus.value << ','
+        << c.cumulus_top.value << ',' << c.cumulonimbus.value << ','
+        << c.cirrus_base.value << ',' << c.cirrus_top.value << ','
+        << c.altostratus_base.value << ',' << c.altostratus_top.value << '\n';
 }
 
 // A page of the log, starting at sequence number `from`:
@@ -106,7 +123,7 @@ void write_log_page(
     const weather_log& log,
     uint32_t from)
 {
-    constexpr size_t ROWS_PER_PAGE = 20; // 20 rows of < 64 bytes fit a frame
+    constexpr size_t ROWS_PER_PAGE = 14; // 14 rows of < 100 bytes fit a frame
     const size_t first = log.find(from);
     const size_t available = log.size() - first;
     const size_t count = available < ROWS_PER_PAGE ? available : ROWS_PER_PAGE;

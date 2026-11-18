@@ -22,6 +22,10 @@ Weather Reading Has All Quantities
     Dictionary Should Contain Key    ${r}    rain
     Dictionary Should Contain Key    ${r}    rain_today
     Dictionary Should Contain Key    ${r}    cloud_cover
+    FOR    ${key}    IN    lcl    cirrus    altostratus    cumulus    cumulus_top    cumulonimbus
+    ...    cirrus_base    cirrus_top    altostratus_base    altostratus_top
+        Dictionary Should Contain Key    ${r}    ${key}
+    END
     Should Be Equal As Integers    ${r}[day]    1
     Should Match Regexp    ${r}[time]    ^\\d\\d:\\d\\d:\\d\\d$
     Should Be Equal As Integers    ${r}[speed]    600
@@ -103,7 +107,7 @@ Log Is Served In Pages
     Send UDP Command    advance 600
     ${page}=    Send UDP Command    log 0
     # The first record covers 06:00-06:10 and is stamped with its end.
-    Should Match Regexp    ${page}    ^log next=20 count=20\\n0,1,06:10,
+    Should Match Regexp    ${page}    ^log next=14 count=14\\n0,1,06:10,
     ${page}=    Send UDP Command    log 99999
     Should Match Regexp    ${page}    ^log next=\\d+ count=0$
     ${reply}=    Send UDP Command    log abc
@@ -142,6 +146,73 @@ It Is Cloudier When It Rains
     Should Be True    0 <= min($clouds) and max($clouds) <= 100
     ${difference}=    Evaluate    sum($wet) / len($wet) - sum($dry) / len($dry)
     Should Be True    ${difference} > 20    msg=Only ${difference} % more cloud cover in rain
+
+Cloud Layers Sit At Their Levels
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    FOR    ${r}    IN    @{log}
+        Should Be True    800 <= ${r}[lcl] <= 1013    msg=LCL ${r}[lcl] hPa at ${r}[time]
+        Should Be True    450 <= ${r}[cumulus_top] <= ${r}[lcl]    msg=Cumulus top ${r}[cumulus_top] hPa, base ${r}[lcl] hPa
+        # High and middle layers: base below top (higher pressure), within their
+        # model limits plus the ceilometer's few hPa of measurement noise.
+        Should Be True    184 <= ${r}[cirrus_top] < ${r}[cirrus_base] <= 426
+        ...    msg=Cirrus ${r}[cirrus_base]..${r}[cirrus_top] hPa at ${r}[time]
+        Should Be True    414 <= ${r}[altostratus_top] < ${r}[altostratus_base] <= 806
+        ...    msg=Altostratus ${r}[altostratus_base]..${r}[altostratus_top] hPa at ${r}[time]
+        Should Be True    ${r}[cirrus_base] <= ${r}[altostratus_top] + 6    msg=Cirrus below altostratus at ${r}[time]
+        FOR    ${layer}    IN    cirrus    altostratus    cumulus    cumulonimbus
+            Should Be True    0 <= ${r}[${layer}] <= 100    msg=${layer} ${r}[${layer}] %
+        END
+    END
+
+Cumulus Grows In The Afternoon And Vanishes At Night
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${afternoon}=    Evaluate    [r["cumulus"] for r in $log if "12:00" <= r["time"] < "18:00"]
+    ${night}=    Evaluate    [r["cumulus"] for r in $log if r["time"] < "06:00"]
+    Should Not Be Empty    ${afternoon}
+    Should Not Be Empty    ${night}
+    ${afternoon_mean}=    Evaluate    sum($afternoon) / len($afternoon)
+    ${night_mean}=    Evaluate    sum($night) / len($night)
+    Should Be True    ${afternoon_mean} > 10    msg=Afternoon cumulus only ${afternoon_mean} %
+    Should Be True    ${night_mean} < 2    msg=Night cumulus ${night_mean} %
+
+Cumulonimbus Comes Only With Rain-Bearing Cloud
+    [Documentation]    Thunderstorm cloud needs a heavily clouded, convective sky.
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${storms}=    Evaluate    [r for r in $log if r["cumulonimbus"] >= 5]
+    Should Not Be Empty    ${storms}    msg=No cumulonimbus in 40 hours
+    FOR    ${r}    IN    @{storms}
+        Should Be True    ${r}[cloud_cover] >= 60    msg=Cumulonimbus under ${r}[cloud_cover] % cloud at ${r}[time]
+    END
+
+High And Middle Layers Move And Thicken
+    [Documentation]    The cirrus and altostratus levels drift, and a layer is
+    ...                thicker when there is more of it.
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${cirrus_bases}=    Evaluate    {r["cirrus_base"] for r in $log}
+    ${as_tops}=    Evaluate    {r["altostratus_top"] for r in $log}
+    Should Be True    len($cirrus_bases) > 20    msg=Cirrus base barely moves: ${cirrus_bases}
+    Should Be True    len($as_tops) > 20    msg=Altostratus top barely moves: ${as_tops}
+    ${thick}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $log if r["altostratus"] >= 40]
+    ${thin}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $log if 0 < r["altostratus"] <= 15]
+    Should Not Be Empty    ${thick}
+    Should Not Be Empty    ${thin}
+    Should Be True    sum($thick) / len($thick) > sum($thin) / len($thin) + 20
+    ...    msg=Thick altostratus not deeper than thin
+
+Cloud Base Is Lower When It Is Humid
+    [Documentation]    The LCL is nearer the ground (higher pressure) in humid air.
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${humid}=    Evaluate    [r["lcl"] for r in $log if r["humidity"] >= 85]
+    ${dry}=    Evaluate    [r["lcl"] for r in $log if r["humidity"] < 60]
+    Should Not Be Empty    ${humid}
+    Should Not Be Empty    ${dry}
+    ${difference}=    Evaluate    sum($humid) / len($humid) - sum($dry) / len($dry)
+    Should Be True    ${difference} > 40    msg=Humid-air LCL only ${difference} hPa lower
 
 Daily Rain Total Counts From Midnight
     Send UDP Command    advance 2400    # 40 h: within the 256-record log

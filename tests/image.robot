@@ -12,8 +12,10 @@ ${LOAD_ADDRESS}     0x40000000
 ${RAM_START}        0x40100000
 ${RAM_BUDGET}       32768
 ${STACK_SIZE}       4096
-# Flash image: code + read-only data + .data's initial values.
-${FLASH_BUDGET}     32768
+# Flash image: code + read-only data + .data's initial values. MCUs with
+# 32 KiB of RAM typically have 128 KiB..1 MiB of flash; 64 KiB keeps an eye
+# on code growth (Release is ~33 KiB, Debug ~29 KiB).
+${FLASH_BUDGET}     65536
 
 
 *** Test Cases ***

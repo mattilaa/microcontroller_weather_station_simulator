@@ -222,4 +222,20 @@ constexpr bool checksum_over_valid_header_is_zero()
 
 static_assert(checksum_over_valid_header_is_zero());
 
+// ---- standard atmosphere (cloud levels)
+// ------------------------------------------
+
+namespace atmosphere_tests
+{
+using util::standard_pressure_hpa;
+static_assert(standard_pressure_hpa(0) == 1013);
+static_assert(standard_pressure_hpa(-100) == 1013); // clamped
+static_assert(standard_pressure_hpa(1500) == 846);  // ICAO: 845.6
+static_assert(standard_pressure_hpa(3000) == 701);  // ICAO: 701.1
+static_assert(standard_pressure_hpa(5500) == 505); // ICAO: 505.0 (interpolated)
+static_assert(standard_pressure_hpa(12000) == 194); // ICAO: 193.9
+static_assert(standard_pressure_hpa(20000) == 194); // clamped
+static_assert(standard_pressure_hpa(1000) > standard_pressure_hpa(1100));
+} // namespace atmosphere_tests
+
 } // namespace

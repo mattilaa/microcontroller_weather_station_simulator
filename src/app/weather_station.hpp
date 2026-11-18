@@ -11,6 +11,22 @@
 namespace app
 {
 
+// Cloud layers by type, each at its own level (see weather_model): amounts in
+// whole percent of the sky, levels as pressure.
+struct cloud_layers
+{
+    percent cirrus;       // high: cirrus_base..cirrus_top
+    percent altostratus;  // middle: altostratus_base..altostratus_top
+    percent cumulus;      // from the LCL up to cumulus_top
+    percent cumulonimbus; // from the LCL up to the tropopause (200 hPa)
+    hectopascal lcl;      // lifting condensation level: the cloud base
+    hectopascal cumulus_top;
+    hectopascal cirrus_base;
+    hectopascal cirrus_top;
+    hectopascal altostratus_base;
+    hectopascal altostratus_top;
+};
+
 // One set of sensor readings: a single sample, a 10-minute record, or the
 // mean of the current 10-minute interval.
 struct weather_reading
@@ -24,7 +40,8 @@ struct weather_reading
     centi_mm rain;       // samples: since the previous update; records: in
                          // the 10-minute interval
     centi_mm rain_today; // since midnight
-    percent cloud_cover; // of the sky
+    percent cloud_cover; // of the sky, all layers
+    cloud_layers clouds;
 };
 
 // "06:10:05 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW |
@@ -63,14 +80,34 @@ private:
 class weather_log
 {
 public:
-    // 256 records of 40 bytes: 10 KiB of the 32 KiB RAM budget, 42.7
-    // simulated hours. (ring_buffer needs a power of two.)
+    // 256 records, 42.7 simulated hours. (ring_buffer needs a power of two.)
     static constexpr size_t CAPACITY = 256;
 
+    // One record, packed into small integers to fit the RAM budget (36
+    // bytes instead of a full weather_reading's 80). rain_today isn't kept.
     struct entry
     {
         uint32_t sequence;
-        weather_reading reading;
+        uint16_t day;
+        uint16_t minute_of_day;
+        int16_t temperature;       // 0.01 degC
+        uint16_t humidity;         // 0.01 %RH
+        uint16_t wind_speed;       // 0.01 m/s
+        uint16_t wind_direction;   // degrees
+        uint16_t rain;             // 0.01 mm in the interval
+        uint16_t lcl;              // hPa
+        uint16_t cumulus_top;      // hPa
+        uint16_t cirrus_base;      // hPa
+        uint16_t cirrus_top;       // hPa
+        uint16_t altostratus_base; // hPa
+        uint16_t altostratus_top;  // hPa
+        uint8_t cloud_cover;       // %
+        uint8_t cirrus;            // %
+        uint8_t altostratus;       // %
+        uint8_t cumulus;           // %
+        uint8_t cumulonimbus;      // %
+
+        weather_reading reading() const;
     };
 
     void add(const weather_reading& reading);
@@ -101,8 +138,8 @@ private:
 };
 
 // The weather station: a thermometer, hygrometer, anemometer, wind vane,
-// tipping-bucket rain gauge and cloud cover sensor (sky imager / ceilometer)
-// measuring the simulated weather.
+// tipping-bucket rain gauge, sky imager (cloud cover and cloud types) and
+// ceilometer (cloud base and tops) measuring the simulated weather.
 //
 // Like a real automatic weather station it samples its sensors often (once
 // per update, i.e. every real second, and at least once per simulated
@@ -168,6 +205,7 @@ private:
     void simulate(uint64_t sim_seconds);
     void sample(uint32_t weight_seconds);
     void close_record();
+    void reset_interval();
 
     weather_model _model;
     sensor_model _thermometer{5, 1, -4000, 6000, 0x7e57'0001u}; // +/-0.05 C
@@ -175,6 +213,8 @@ private:
     sensor_model _anemometer{5, 10, 0, 6000, 0x7e57'0003u};     // 0.1 m/s
     sensor_model _wind_vane{2, 1, -720, 1080, 0x7e57'0004u};    // 1 deg
     sensor_model _sky_imager{2, 1, 0, 100, 0x7e57'0005u};       // 1 %
+    sensor_model _cloud_sensor{1, 1, 0, 100, 0x7e57'0006u};     // layers, 1 %
+    sensor_model _ceilometer{2, 1, 150, 1013, 0x7e57'0007u};    // levels, hPa
 
     uint32_t _speed = DEFAULT_SPEED;
     uint64_t _last_update_ms = 0;
@@ -185,6 +225,16 @@ private:
     int64_t _sum_humidity = 0;
     int64_t _sum_wind_speed = 0;
     int64_t _sum_cloud_cover = 0;
+    int64_t _sum_cirrus = 0;
+    int64_t _sum_altostratus = 0;
+    int64_t _sum_cumulus = 0;
+    int64_t _sum_cumulonimbus = 0;
+    int64_t _sum_lcl = 0;
+    int64_t _sum_cumulus_top = 0;
+    int64_t _sum_cirrus_base = 0;
+    int64_t _sum_cirrus_top = 0;
+    int64_t _sum_altostratus_base = 0;
+    int64_t _sum_altostratus_top = 0;
     int64_t _sum_direction = 0; // of the unwrapped (continuous) direction
     uint32_t _sum_weight = 0;   // seconds
     int32_t _interval_rain = 0;

@@ -100,7 +100,16 @@ void console_task::print_weather()
          << "rain:           " << mean.rain << " in this interval (today "
          << r.rain_today << ")\n"
          << "cloud cover:    " << r.cloud_cover << " (10-min mean "
-         << mean.cloud_cover << ")\n";
+         << mean.cloud_cover << ")\n"
+         << "cloud layers:   cirrus " << r.clouds.cirrus << " ("
+         << r.clouds.cirrus_base << ".." << r.clouds.cirrus_top
+         << "), altostratus " << r.clouds.altostratus << " ("
+         << r.clouds.altostratus_base << ".." << r.clouds.altostratus_top
+         << ")\n"
+         << "                cumulus " << r.clouds.cumulus << " (top "
+         << r.clouds.cumulus_top << "), cumulonimbus " << r.clouds.cumulonimbus
+         << '\n'
+         << "cloud base:     LCL " << r.clouds.lcl << '\n';
 }
 
 void console_task::print_history()
@@ -111,7 +120,7 @@ void console_task::print_history()
     _out << "last " << log.size() - first
          << " 10-minute records (oldest first):\n";
     for(size_t i = first; i < log.size(); ++i)
-        _out << "  " << log[i].reading << '\n';
+        _out << "  " << log[i].reading() << '\n';
 }
 
 void console_task::change_speed(bool faster)

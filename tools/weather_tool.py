@@ -43,7 +43,11 @@ import subprocess
 import sys
 import time
 
-COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain", "cloud_cover"]
+COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain", "cloud_cover",
+           "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
+           "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top"]
+CLOUD_LAYER_COLUMNS = ["lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
+                       "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top"]
 SERVICE_PORT = 5000
 
 # ---- import --------------------------------------------------------------------
@@ -150,8 +154,9 @@ def load(path):
                     "wind_speed": float(row["wind_speed"]),
                     "wind_direction": float(row["wind_direction"]),
                     "rain": float(row["rain"]),
-                    # Older CSVs (before the cloud cover sensor) lack the column.
+                    # Older CSVs (before the cloud sensors) lack these columns.
                     "cloud_cover": float(row["cloud_cover"]) if row.get("cloud_cover") else None,
+                    **{key: float(row[key]) if row.get(key) else None for key in CLOUD_LAYER_COLUMNS},
                 }
             )
     readings.sort(key=lambda r: r["when"])
@@ -203,11 +208,20 @@ def hourly(readings):
 TEMPERATURE_COLOR = "#9b1c1c"
 DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
-CLOUD_COLOR = "#7d8fa6"  # muted blue-grey: dims the background, not the data
-CLOUD_MAX_ALPHA = 0.55   # at full overcast
-CLOUD_CLEAR = 15.0       # % cover with no shading at all (fair weather)
-CLOUD_FULL = 85.0        # % cover with the darkest shading
-CLOUD_SMOOTH_MINUTES = 30  # Gaussian smoothing (sigma) of the shading
+# Cloud panel: each type at its level (hPa), as in the firmware's weather_model.
+CLOUD_TYPES = [
+    # key, label, colour, base, top: a column name (per record) or a fixed
+    # hPa (fallback for older CSVs); base/top feather as fractions of the
+    # layer's depth: how soft its lower and upper edges are.
+    ("cirrus", "Cirrus", "#7fa8dc", ("cirrus_base", 350), ("cirrus_top", 200), 0.45, 0.45),
+    ("altostratus", "Altostratus", "#8a95a8", ("altostratus_base", 700), ("altostratus_top", 450), 0.2, 0.3),
+    ("cumulus", "Cumulus", "#a3b5cc", ("lcl", 900), ("cumulus_top", 700), 0.04, 0.4),
+    ("cumulonimbus", "Cumulonimbus", "#3f4f66", ("lcl", 900), (None, 200), 0.04, 0.15),
+]
+LCL_COLOR = "#c0601a"
+PRESSURE_TICKS = [1000, 850, 700, 500, 300, 200]
+# Standard-atmosphere heights of those levels, for the km scale.
+PRESSURE_KM = {1000: "0.1", 850: "1.5", 700: "3.0", 500: "5.6", 300: "9.2", 200: "11.8"}
 WIND_COLOR = "#2f4f6f"
 BAND_COLOR = "#f4f4f4"
 GRID_COLOR = "#dddddd"
@@ -223,50 +237,89 @@ def nice_temperature_range(values, intervals_min=4):
     return low, high
 
 
-def cloud_alpha(cover):
-    """Shading opacity for cloud cover in %: none in fair weather, darker
-    toward overcast."""
+def smoothstep(x):
     import numpy as np
 
-    level = np.clip((np.asarray(cover, dtype=float) - CLOUD_CLEAR) / (CLOUD_FULL - CLOUD_CLEAR), 0.0, 1.0)
-    return CLOUD_MAX_ALPHA * level ** 1.15
+    x = np.clip(x, 0.0, 1.0)
+    return x * x * (3 - 2 * x)
 
 
-def draw_cloud_shading(ax, readings):
-    """Shade `ax`'s background by cloud cover: a one-row RGBA image, smoothed
-    with a Gaussian over CLOUD_SMOOTH_MINUTES so it reads like a sky rather
-    than a bar code, drawn behind everything on the axes."""
+def draw_cloud_panel(ax, readings):
+    """Time-height cross-section of the cloud layers on a pressure axis.
+
+    Rendered as an image on a log-pressure grid (pressure falls roughly
+    exponentially with height): one column per 10-minute record, no smoothing
+    between records. Each layer spans its own base and top for that record
+    and has edges shaped like the cloud: cumulus a flat base at the LCL and
+    a soft billowing top, cirrus wispy and densest in the middle, altostratus
+    a sheet. More cloud is more opaque. The LCL is drawn as a line."""
     import matplotlib.colors
     import matplotlib.dates as mdates
     import numpy as np
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+    from matplotlib.ticker import FixedLocator, NullLocator
 
-    points = [(r["when"] - datetime.timedelta(minutes=RECORD_MINUTES / 2), r["cloud_cover"])
-              for r in readings if r["cloud_cover"] is not None]
-    if not points:
-        return
-    x = np.array([mdates.date2num(when) for when, _ in points])
-    cover = np.array([c for _, c in points], dtype=float)
-    begin = x[0] - RECORD_MINUTES / 2 / 1440   # start of the first interval
-    end = x[-1] + RECORD_MINUTES / 2 / 1440    # end of the last interval
+    layered = [r for r in readings if r.get("lcl") is not None]
+    p_bottom, p_top = 1050.0, 185.0
+    rows = 300
+    levels = np.log(np.geomspace(p_top, p_bottom, rows))  # row 0 = top of the sky
+    width = RECORD_MINUTES / 1440  # one column per record, in days
 
-    # Interpolate to one value per minute, smooth, then draw one pixel per
-    # 5 minutes: fine enough to follow the data, coarse enough not to alias.
-    minutes = max(2, int(round((end - begin) * 1440)) + 1)
-    fine = np.interp(np.linspace(begin, end, minutes), x, cover)
-    sigma = CLOUD_SMOOTH_MINUTES
-    radius = 3 * sigma
-    kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / sigma) ** 2)
-    kernel /= kernel.sum()
-    smooth = np.convolve(np.pad(fine, radius, mode="edge"), kernel, mode="valid")
-    pixels = smooth[:: 5] if len(smooth) > 10 else smooth
+    image = np.zeros((rows, len(layered), 4))
+    for key, _, color, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
+        rgb = np.array(matplotlib.colors.to_rgb(color))
+        floor = 0.45 if key == "cumulonimbus" else 0.2
+        for column, r in enumerate(layered):
+            amount = (r.get(key) or 0.0) / 100.0
+            if amount <= 0.005:
+                continue
+            base = np.log(r.get(base_key) or base_fixed) if base_key else np.log(base_fixed)
+            top = np.log(r.get(top_key) or top_fixed) if top_key else np.log(top_fixed)
+            depth = base - top  # in log-pressure, base is the larger value
+            if depth <= 0:
+                continue
+            above_base = (base - levels) / (depth * soft_base)  # 0 at the base
+            below_top = (levels - top) / (depth * soft_top)     # 0 at the top
+            profile = smoothstep(above_base) * smoothstep(below_top)
+            if key == "cirrus":
+                # Wispy: densest in the middle of the layer.
+                middle = (base + top) / 2
+                profile *= np.exp(-(((levels - middle) / (depth / 2.2)) ** 2))
+            alpha = profile * (floor + min(amount, 1.0) * (0.95 - floor))
+            # Composite this layer over what's there ("over" operator).
+            old = image[:, column]
+            out_alpha = alpha + old[:, 3] * (1 - alpha)
+            safe = np.where(out_alpha > 0, out_alpha, 1)
+            old[:, :3] = (rgb * alpha[:, None] + old[:, :3] * (old[:, 3] * (1 - alpha))[:, None]) / safe[:, None]
+            old[:, 3] = out_alpha
 
-    image = np.zeros((1, len(pixels), 4))
-    image[0, :, :3] = matplotlib.colors.to_rgb(CLOUD_COLOR)
-    image[0, :, 3] = cloud_alpha(pixels)
-    y_low, y_high = ax.get_ylim()
-    ax.imshow(image, extent=(begin, end, y_low, y_high), aspect="auto",
-              interpolation="bilinear", zorder=0.5)
-    ax.set_ylim(y_low, y_high)  # imshow may change the limits
+    starts = [mdates.date2num(r["when"]) - width for r in layered]
+    ax.imshow(image, extent=(starts[0], starts[-1] + width, np.log(p_bottom), np.log(p_top)),
+              aspect="auto", interpolation="nearest", origin="upper", zorder=2)
+    ax.set_ylim(np.log(p_bottom), np.log(p_top))  # surface at the bottom
+    ticks = np.log(PRESSURE_TICKS)
+    ax.yaxis.set_major_locator(FixedLocator(ticks))
+    ax.yaxis.set_minor_locator(NullLocator())
+    ax.set_yticklabels([str(p) for p in PRESSURE_TICKS])
+    ax.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
+
+    lcl_times = [r["when"] - datetime.timedelta(minutes=RECORD_MINUTES / 2) for r in layered]
+    ax.plot(lcl_times, np.log([r["lcl"] for r in layered]), color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), zorder=4)
+
+    ax.text(0, 1.02, "hPa", transform=ax.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
+    km = ax.secondary_yaxis("right")
+    km.yaxis.set_major_locator(FixedLocator(ticks))
+    km.yaxis.set_minor_locator(NullLocator())
+    km.set_yticklabels([PRESSURE_KM[p] for p in PRESSURE_TICKS])
+    km.tick_params(colors="#444444", labelsize=10, length=0)
+    km.spines["right"].set_visible(False)
+    ax.text(1, 1.02, "km", transform=ax.transAxes, ha="left", va="bottom", fontsize=12, color="#444444")
+
+    handles = [Patch(color=color, alpha=0.8, label=label) for _, label, color, *_ in CLOUD_TYPES]
+    handles.append(Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)"))
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=5, frameon=False,
+              fontsize=9.5, handlelength=1.6, columnspacing=1.2)
 
 
 def plot(readings, out_path, hours=24, title=None):
@@ -276,7 +329,7 @@ def plot(readings, out_path, hours=24, title=None):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig = plt.figure(figsize=(13, 7.2))
+    fig = plt.figure(figsize=(13, 9.6 if any(r.get("lcl") is not None for r in readings) else 7.2))
     draw(fig, readings, hours, title)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
@@ -302,7 +355,13 @@ def draw(fig, readings, hours=24, title=None):
     temperatures = [r["temperature"] for r in readings]
     dew_points = [dew_point(r["temperature"], r["humidity"]) for r in readings]
 
-    ax_t, ax_w = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [3.2, 1.3], "hspace": 0.12})
+    has_layers = any(r.get("lcl") is not None for r in readings)
+    if has_layers:
+        ax_t, ax_c, ax_w = fig.subplots(
+            3, 1, sharex=True, gridspec_kw={"height_ratios": [3.0, 1.9, 1.3], "hspace": 0.14})
+    else:
+        ax_t, ax_w = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [3.2, 1.3], "hspace": 0.12})
+        ax_c = None
     fig.patch.set_facecolor("white")
     x_begin = (begin - datetime.timedelta(minutes=RECORD_MINUTES)).replace(minute=0)
     x_end = max((end + datetime.timedelta(minutes=59)).replace(minute=0), x_begin + datetime.timedelta(hours=1))
@@ -335,26 +394,15 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.set_zorder(ax_r.get_zorder() + 1)
     ax_t.patch.set_visible(False)
 
-    # Cloud cover as a dimmed background behind everything in the top panel:
-    # a smooth gradient through every 10-minute record (as detailed as the
-    # temperature line), darker the cloudier. It goes on the back (rain) axes
-    # below the hour bands and bars (zorder), so it never hides a measurement.
-    has_clouds = any(r["cloud_cover"] is not None for r in readings)
-    if has_clouds:
-        draw_cloud_shading(ax_r, readings)
-
     # Alternating hour bands and a dashed line at each midnight. In the top
     # panel they go on the back (rain) axes, or they would cover the bars.
     hour = x_begin
     while hour < x_end:
-        # With cloud cover the sky shading replaces the alternating hour bands,
-        # which would chop it into two-hour steps.
-        if hour.hour % 2 == 1 and not has_clouds:
-            for ax in (ax_r, ax_w):
-                ax.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
+        if hour.hour % 2 == 1:  # temperature panel only; the wind panel stays plain
+            ax_r.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
         if hour.hour == 0 and hour > x_begin:
-            for ax in (ax_t, ax_w):
-                ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=1)
+            for ax in (ax_t, ax_w) + ((ax_c,) if ax_c is not None else ()):
+                ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=5)
         hour += datetime.timedelta(hours=1)
 
     ax_t.plot(times, temperatures, color=TEMPERATURE_COLOR, lw=2.2, zorder=4, label="Temperature")
@@ -363,13 +411,13 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.text(0, 1.02, "°C", transform=ax_t.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
     ax_r.text(1, 1.02, "mm", transform=ax_r.transAxes, ha="left", va="bottom", fontsize=12, color="#444444")
     handles = ax_t.get_legend_handles_labels()[0] + ax_r.get_legend_handles_labels()[0]
-    if has_clouds:
-        from matplotlib.patches import Patch
-
-        handles.append(Patch(color=CLOUD_COLOR, alpha=CLOUD_MAX_ALPHA * 0.7, label="Cloud cover (shading)"))
-    ax_t.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=4, frameon=False, fontsize=10)
+    ax_t.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=3, frameon=False, fontsize=10)
     if title:
         ax_t.set_title(title, loc="right", fontsize=11, color="#444444", pad=22)
+
+    # -- cloud panel: types at their levels on a pressure axis -----------------
+    if ax_c is not None:
+        draw_cloud_panel(ax_c, readings)
 
     # -- wind panel ----------------------------------------------------------
     speeds = [r["wind_speed"] for r in readings]
@@ -377,8 +425,6 @@ def draw(fig, readings, hours=24, title=None):
     ax_w.set_ylim(0, w_high * 1.7)  # top part holds the arrows
     ax_w.set_yticks(range(0, w_high + 1, max(1, w_high // 2)))
     ax_w.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
-    if has_clouds:
-        draw_cloud_shading(ax_w, readings)  # behind the wind as well
     ax_w.fill_between(times, speeds, color=WIND_COLOR, alpha=0.12, lw=0, zorder=2)
     ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Wind speed")
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
@@ -421,7 +467,7 @@ def draw(fig, readings, hours=24, title=None):
             ax_w.text(mdates.date2num(midnight), -0.2, f"Day {day_number}", transform=transforms.blended_transform_factory(
                 ax_w.transData, ax_w.transAxes), ha="center", va="top", fontsize=10, fontweight="bold")
 
-    for ax in (ax_t, ax_r, ax_w):
+    for ax in (ax_t, ax_r, ax_w) + ((ax_c,) if ax_c is not None else ()):
         for side in ("top", "right", "left"):
             ax.spines[side].set_visible(False)
         ax.spines["bottom"].set_color("#aaaaaa")

@@ -53,6 +53,20 @@ int32_t weather_model::daily_temperature(uint32_t minute_of_day)
                       util::SIN_SCALE;
 }
 
+int32_t weather_model::daily_convection(uint32_t minute_of_day)
+{
+    // Positive half of the daily cycle (09:00..21:00), peaking at 15:00.
+    const int32_t s = util::sin_deg(daily_phase_degrees(minute_of_day));
+    return s > 0 ? s / 10 : 0;
+}
+
+int32_t weather_model::lcl_hpa(int32_t humidity)
+{
+    // Height: 125 m * (100 - RH) / 5 = 25 m per %RH below saturation.
+    const int32_t metres = (10000 - util::clamp(humidity, 0, 10000)) / 4;
+    return util::standard_pressure_hpa(metres);
+}
+
 int32_t weather_model::daily_mean_wind(uint32_t minute_of_day)
 {
     constexpr int32_t MEAN = 300;      // 3.00 m/s
@@ -171,6 +185,38 @@ void weather_model::step(uint32_t dt)
     // sigma = 30 deg * 1 m/s / (speed + 1 m/s): 30 deg calm, ~7 deg at 3 m/s.
     _vane_swing = _rng.gaussian(3000 / (speed + 100));
 
+    // High cloud: its own slow drift around a quarter of the sky.
+    constexpr int32_t CIRRUS_NOISE = 16 * FINE;
+    _cirrus = util::clamp(
+        revert(
+            _cirrus,
+            250 * FINE,
+            dt,
+            8 * 3600,
+            _cirrus_rng.gaussian(CIRRUS_NOISE)),
+        0,
+        1000 * FINE);
+
+    // The high and middle layers' centre levels drift over hours.
+    _cirrus_level = util::clamp(
+        revert(
+            _cirrus_level,
+            270 * FINE,
+            dt,
+            6 * 3600,
+            _level_rng.gaussian(4 * FINE)),
+        230 * FINE,
+        330 * FINE);
+    _altostratus_level = util::clamp(
+        revert(
+            _altostratus_level,
+            580 * FINE,
+            dt,
+            4 * 3600,
+            _level_rng.gaussian(7 * FINE)),
+        500 * FINE,
+        660 * FINE);
+
     // Rain falls at the step's rate (computed from the new cloudiness).
     update_conditions();
     _rain_fallen += static_cast<int64_t>(_conditions.rain_rate) * dt;
@@ -199,14 +245,67 @@ void weather_model::update_conditions()
                              _moisture / FINE + (cloud - 350) * 2 +
                              _wetness / FINE * 5 / 2;
 
+    // Cloud layers. The cloudiness that makes rain is low and middle cloud;
+    // daytime convection decides how much of it is heaped cumulus rather
+    // than a stratiform sheet. Heavy rain in strong convection is
+    // cumulonimbus: it grows from the cloud base right up to the tropopause.
+    const int32_t convection = daily_convection(minute);
+    int32_t cumulonimbus = 0;
+    if(cloud > 700 && convection > 300)
+        cumulonimbus =
+            util::clamp((cloud - 700) * 3 * convection / 1000, 0, cloud);
+    const int32_t layered = cloud - cumulonimbus;
+    const int32_t cumulus = layered * convection / 1000;
+    const int32_t altostratus = layered - cumulus;
+    const int32_t cirrus = _cirrus / FINE;
+
+    const int32_t relative_humidity = util::clamp(humidity, 1500, 10000);
+    const int32_t lcl = lcl_hpa(relative_humidity);
+    // Cumulus towers deepen with convection: 80..350 hPa above the base.
+    const int32_t cumulus_top =
+        util::clamp(lcl - 80 - 270 * convection / 1000, 450, lcl);
+
+    // High and middle layers: centred on their drifting levels, thicker the
+    // more cloud there is. Steady rain lowers the altostratus base toward
+    // the ground (it thickens into rain-bearing nimbostratus).
+    const int32_t cirrus_half = 15 + 60 * cirrus / 1000;
+    const int32_t cirrus_level = _cirrus_level / FINE;
+    const int32_t cirrus_base =
+        util::clamp(cirrus_level + cirrus_half, cirrus_level, CIRRUS_LOWEST);
+    const int32_t cirrus_top =
+        util::clamp(cirrus_level - cirrus_half, CIRRUS_HIGHEST, cirrus_level);
+    const int32_t altostratus_half = 20 + 110 * altostratus / 1000;
+    const int32_t altostratus_level = _altostratus_level / FINE;
+    const int32_t altostratus_base = util::clamp(
+        altostratus_level + altostratus_half + rain_rate / 3,
+        altostratus_level,
+        util::clamp(lcl - 20, altostratus_level, ALTOSTRATUS_LOWEST));
+    const int32_t altostratus_top = util::clamp(
+        altostratus_level - altostratus_half,
+        ALTOSTRATUS_HIGHEST,
+        altostratus_level);
+
+    // The sky imager sees all layers; thin cirrus counts half.
+    const int32_t sky = cloud + cirrus / 2 * (1000 - cloud) / 1000;
+
     _conditions = {
         .temperature = temperature,
-        .humidity = util::clamp(humidity, 1500, 10000),
+        .humidity = relative_humidity,
         .wind_speed = util::clamp((_sustained_wind + _gust) / FINE, 0, 4000),
         .wind_direction =
             util::wrap(_prevailing / FINE / 10 + _vane_swing, 360),
         .rain_rate = rain_rate,
-        .cloud_cover = cloud,
+        .cloud_cover = sky,
+        .cirrus = cirrus,
+        .altostratus = altostratus,
+        .cumulus = cumulus,
+        .cumulonimbus = cumulonimbus,
+        .lcl = lcl,
+        .cumulus_top = cumulus_top,
+        .cirrus_base = cirrus_base,
+        .cirrus_top = cirrus_top,
+        .altostratus_base = altostratus_base,
+        .altostratus_top = altostratus_top,
     };
 }
 

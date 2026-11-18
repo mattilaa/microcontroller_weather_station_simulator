@@ -50,4 +50,49 @@ constexpr int32_t cos_deg(int32_t degrees)
     return sin_deg(degrees + 90);
 }
 
+// Pressure in hPa at a height in metres in the ICAO standard atmosphere
+// (1013.25 hPa at sea level), by linear interpolation in a 500 m table.
+// Accurate to about 1 hPa up to 12 km; clamped outside 0..12 km.
+constexpr int32_t standard_pressure_hpa(int32_t metres)
+{
+    // Pressure in 0.1 hPa every 500 m, 0..12000 m.
+    constexpr int32_t TABLE[] =
+        {10133,
+         9546,
+         8988,
+         8456,
+         7950,
+         7469,
+         7012,
+         6578,
+         6164,
+         5770,
+         5405,
+         5054,
+         4722,
+         4408,
+         4111,
+         3830,
+         3565,
+         3315,
+         3080,
+         2858,
+         2650,
+         2454,
+         2270,
+         2098,
+         1940};
+    constexpr int32_t STEP = 500;
+    constexpr int32_t LAST =
+        static_cast<int32_t>(sizeof(TABLE) / sizeof(TABLE[0])) - 1;
+    if(metres <= 0)
+        return (TABLE[0] + 5) / 10;
+    if(metres >= LAST * STEP)
+        return (TABLE[LAST] + 5) / 10;
+    const int32_t i = metres / STEP;
+    const int32_t within = metres - i * STEP;
+    const int32_t tenths = TABLE[i] + (TABLE[i + 1] - TABLE[i]) * within / STEP;
+    return (tenths + 5) / 10;
+}
+
 } // namespace util

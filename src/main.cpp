@@ -33,8 +33,8 @@ extern scheduler
 constinit hal::generic_timer timer;
 constinit console serial_console{hal::uart0};
 constinit settings app_settings;
-constinit led status_led;
-constinit weather_station station;
+constinit weather_log reading_log{}; // large and all zero: lands in .bss
+constinit weather_station station{reading_log};
 
 constinit hal::virtio_net::dma_memory ethernet_memory{}; // .bss
 constinit hal::virtio_net ethernet{ethernet_memory};
@@ -42,21 +42,19 @@ constinit weather_service weather_udp{station};
 constinit net::stack
     ip_stack{ethernet, NETWORK_CONFIG, weather_udp, weather_service::PORT};
 
-constinit heartbeat_task heartbeat{status_led, serial_console, app_settings};
 constinit weather_task weather_reader{station, serial_console, app_settings};
 constinit network_task network{ethernet, ip_stack};
 constinit console_task command_shell{
     hal::uart0,
     serial_console,
     app_settings,
-    status_led,
     station,
     ethernet,
     ip_stack,
     task_scheduler};
 
 constinit task* const task_table[] =
-    {&heartbeat, &weather_reader, &network, &command_shell};
+    {&weather_reader, &network, &command_shell};
 constinit scheduler task_scheduler{task_table};
 
 unsigned current_el()

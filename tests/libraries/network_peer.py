@@ -210,6 +210,32 @@ class NetworkPeer:
             raise AssertionError("Bad UDP checksum in reply")
         return udp[8:].decode().rstrip("\n")
 
+    def fetch_weather_log(self, start=0):
+        """Page through the firmware's reading log ("log <sequence>") and
+        return the readings as a list of dictionaries with numeric values.
+        Also checks that sequence numbers are consecutive."""
+        columns = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain"]
+        readings, next_sequence = [], int(start)
+        while True:
+            header, *rows = self.send_udp_command(f"log {next_sequence}").split("\n")
+            fields = dict(item.split("=") for item in header.split()[1:])
+            if int(fields["count"]) != len(rows if rows != [""] else []):
+                raise AssertionError(f"Header says {fields['count']} rows, got {len(rows)}: {header}")
+            for row in rows[: int(fields["count"])]:
+                values = dict(zip(columns, row.split(",")))
+                for key in ("seq", "day", "wind_direction"):
+                    values[key] = int(values[key])
+                for key in ("temperature", "humidity", "wind_speed", "rain"):
+                    values[key] = float(values[key])
+                readings.append(values)
+            next_sequence = int(fields["next"])
+            if int(fields["count"]) == 0:
+                break
+        for previous, current in zip(readings, readings[1:]):
+            if current["seq"] != previous["seq"] + 1:
+                raise AssertionError(f"Sequence gap: {previous['seq']} -> {current['seq']}")
+        return readings
+
     # ---- malformed traffic --------------------------------------------------
 
     def send_ipv4_with_bad_header_checksum(self):

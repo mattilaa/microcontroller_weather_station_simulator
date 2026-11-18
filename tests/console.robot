@@ -15,10 +15,9 @@ Help Command Lists Commands
 Status Command Shows State And All Tasks
     Wait For Output    temp
     Press Key And Expect    s    --- status @ \\d+ ms ---
-    Wait For Output    LED: (on|off)
     Wait For Output    weather: ${READING}
+    Wait For Output    log: \\d+ readings, next sequence \\d+
     Wait For Output    network: up
-    Wait For Output    task heartbeat: period 500 ms, runs \\d+
     Wait For Output    task weather: period 1000 ms, runs \\d+
     Wait For Output    task network: period 5 ms, runs \\d+
     Wait For Output    task console: period 10 ms, runs \\d+
@@ -30,6 +29,7 @@ Weather Report Shows Latest Readings And Averages
     Wait For Output    humidity: +\\d+\\.\\d\\d %RH \\(avg \\d+\\.\\d\\d %RH\\)
     Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(avg \\d+\\.\\d\\d m/s\\)
     Wait For Output    wind direction: +\\d+ deg [NESW]+ \\(avg \\d+ deg [NESW]+\\)
+    Wait For Output    rain: +\\d+\\.\\d\\d mm \\(today \\d+\\.\\d\\d mm\\)
 
 First Average Equals First Reading
     [Documentation]    With one sample in each window, every average equals its reading.
@@ -43,13 +43,13 @@ First Average Equals First Reading
 History Command Dumps Collected Readings
     Wait For Output    temp
     Wait For Output    temp    timeout=3s
-    Press Key And Expect    d    last [2-8] of 8 readings \\(oldest first\\):
+    Press Key And Expect    d    last [2-8] readings \\(oldest first\\):
     Wait For Output    \\n {2}${READING}\\n {2}${READING}
 
-History Never Exceeds Window Size
-    [Documentation]    After more than 8 sensor periods the history is capped at 8 readings.
+History Shows At Most 8 Readings
+    [Documentation]    After more than 8 sensor periods the dump is capped at 8 readings.
     Collect Output    9.5s
-    Press Key And Expect    d    last 8 of 8 readings
+    Press Key And Expect    d    last 8 readings
 
 Network Command Shows Address And Counters
     Ping Firmware
@@ -60,10 +60,9 @@ Network Command Shows Address And Counters
 Verbose Command Silences Periodic Output
     Press Key And Expect    v    verbose off
     ${quiet}=    Collect Output    1.6s
-    Should Not Contain    ${quiet}    LED
     Should Not Contain    ${quiet}    temp
     Press Key And Expect    v    verbose on
-    Wait For Output    LED (ON|OFF)    timeout=2s
+    Wait For Output    ${READING}    timeout=2s
 
 Unknown Command Is Reported
     Press Key And Expect    x    unknown command 'x' \\(h for help\\)

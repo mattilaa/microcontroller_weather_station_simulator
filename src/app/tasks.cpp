@@ -15,14 +15,6 @@ util::text_stream& timestamp(util::text_stream& out, uint64_t now_ms)
 
 // ---- Tasks ------------------------------------------------------------------
 
-void heartbeat_task::run(uint64_t now_ms)
-{
-    _led.toggle();
-    if(_settings.verbose)
-        timestamp(_out, now_ms)
-            << "LED " << (_led.is_on() ? "ON" : "OFF") << '\n';
-}
-
 void weather_task::run(uint64_t now_ms)
 {
     _station.update(now_ms);
@@ -44,7 +36,7 @@ void console_task::print_help()
             "  h  help\n"
             "  s  status\n"
             "  w  weather report (latest and averages)\n"
-            "  d  dump weather history\n"
+            "  d  dump the last 8 readings\n"
             "  n  network status\n"
             "  v  toggle verbose output\n"
             "  q  quit QEMU (semihosting)\n";
@@ -70,10 +62,11 @@ void console_task::print_network()
 
 void console_task::print_status(uint64_t now_ms)
 {
-    _out << "--- status @ " << now_ms << " ms ---\n"
-         << "LED: " << (_led.is_on() ? "on" : "off") << '\n';
+    _out << "--- status @ " << now_ms << " ms ---\n";
     if(_station.has_reading())
         _out << "weather: " << _station.latest() << '\n';
+    _out << "log: " << _station.log().size() << " readings, next sequence "
+         << _station.log().next_sequence() << '\n';
     print_network();
     for(const task* t : _scheduler)
         _out << "  task " << t->name() << ": period " << t->period_ms()
@@ -97,16 +90,18 @@ void console_task::print_weather()
          << "wind speed:     " << r.wind_speed << " (avg " << avg.wind_speed
          << ")\n"
          << "wind direction: " << r.wind_direction << " (avg "
-         << avg.wind_direction << ")\n";
+         << avg.wind_direction << ")\n"
+         << "rain:           " << r.rain << " (today " << r.rain_today << ")\n";
 }
 
 void console_task::print_history()
 {
-    const auto& history = _station.history();
-    _out << "last " << history.size() << " of " << history.capacity()
-         << " readings (oldest first):\n";
-    for(size_t i = 0; i < history.size(); ++i)
-        _out << "  " << history[i] << '\n';
+    constexpr size_t LINES = 8;
+    const weather_log& log = _station.log();
+    const size_t first = log.size() > LINES ? log.size() - LINES : 0;
+    _out << "last " << log.size() - first << " readings (oldest first):\n";
+    for(size_t i = first; i < log.size(); ++i)
+        _out << "  " << log[i].reading << '\n';
 }
 
 void console_task::run(uint64_t now_ms)

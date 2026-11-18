@@ -14,15 +14,21 @@ struct weather_conditions
     int32_t humidity;       // 0.01 %RH
     int32_t wind_speed;     // 0.01 m/s
     int32_t wind_direction; // degrees, 0..359 (where the wind comes from)
+    int32_t rain_rate;      // 0.01 mm/h
 };
 
 // Simulated weather. Deterministic daily patterns plus slowly varying random
 // processes, so the data behaves like real weather instead of pure noise:
 //
 // - temperature: daily sine cycle (coldest ~03:00, warmest ~15:00) plus a
-//   slow "weather front" offset that drifts over hours
+//   slow "weather front" offset that drifts over hours; clouds flatten the
+//   daily swing and rain cools the air
+// - cloudiness: a slow random process; when it builds past a threshold it
+//   rains, harder the cloudier it gets, so rain comes in showers lasting
+//   from tens of minutes to hours
 // - humidity: falls when it gets warmer (relative humidity drops as air
-//   warms), plus its own slow moisture drift
+//   warms), rises with clouds and with wetness that builds up during rain
+//   and dries out over the following hours
 // - wind speed: mean-reverting around a daily mean (windier in the
 //   afternoon), with occasional gusts that decay
 // - wind direction: a prevailing direction that drifts slowly; the vane
@@ -36,9 +42,15 @@ public:
     static constexpr uint32_t MINUTES_PER_DAY = 24 * 60;
     static constexpr uint32_t START_MINUTE = 6 * 60; // day 1 starts at 06:00
 
+    // Cloudiness (0..1000) above which it rains.
+    static constexpr int32_t RAIN_THRESHOLD = 650;
+
     // Advance simulated time by `real_ms` milliseconds of real time and
     // update the weather.
     void advance(uint32_t real_ms);
+
+    // Advance simulated time directly (fast-forward).
+    void advance_simulated(uint32_t sim_seconds);
 
     // Jump to a time of day (0..1439) on the current day. Only the daily
     // patterns change; the slow random processes keep their state.
@@ -51,6 +63,9 @@ public:
     {
         return _conditions;
     }
+
+    // Rain that has fallen since the last call, in 0.01 mm.
+    int32_t take_rain();
 
     // Deterministic daily patterns (exposed for tests and documentation).
     static int32_t daily_temperature(uint32_t minute_of_day);
@@ -65,10 +80,14 @@ private:
 
     int32_t _front = 0;            // temperature offset, 0.01 degC
     int32_t _moisture = 0;         // humidity offset, 0.01 %RH
+    int32_t _cloud_trend = 350;    // where cloudiness is heading, 0..1000
+    int32_t _cloud = 350;          // cloudiness, 0..1000
+    int32_t _wetness = 0;          // 0..1000: builds in rain, dries after
     int32_t _sustained_wind = 300; // 0.01 m/s, mean-reverting
     int32_t _gust = 0;             // 0.01 m/s, decays every step
     int32_t _prevailing = 2250;    // 0.1 degrees (starts SW)
     int32_t _vane_swing = 0;       // degrees, turbulence of the moment
+    int64_t _rain_fallen = 0;      // since take_rain(), in 0.01 mm * 1 s / 1 h
 
     weather_conditions _conditions{};
 };

@@ -23,6 +23,11 @@ struct centi_mps // 0.01 m/s, prints "3.42 m/s"
     int32_t value;
 };
 
+struct centi_mm // 0.01 mm of precipitation, prints "0.40 mm"
+{
+    int32_t value;
+};
+
 // Direction the wind blows from, 0..359; prints "225 deg SW".
 struct compass_degrees
 {
@@ -40,6 +45,7 @@ const char* compass_point(int32_t degrees);
 util::text_stream& operator<<(util::text_stream& out, centi_celsius t);
 util::text_stream& operator<<(util::text_stream& out, centi_percent h);
 util::text_stream& operator<<(util::text_stream& out, centi_mps s);
+util::text_stream& operator<<(util::text_stream& out, centi_mm r);
 util::text_stream& operator<<(util::text_stream& out, compass_degrees d);
 util::text_stream& operator<<(util::text_stream& out, clock_time t);
 

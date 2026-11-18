@@ -37,6 +37,21 @@ int digit(uint8_t c)
     return c >= '0' && c <= '9' ? c - '0' : -1;
 }
 
+// Parse a decimal number of at most 9 digits; -1 if invalid.
+int32_t parse_number(util::span<const uint8_t> text)
+{
+    if(text.empty() || text.size() > 9)
+        return -1;
+    int32_t value = 0;
+    for(uint8_t c : text)
+    {
+        if(digit(c) < 0)
+            return -1;
+        value = value * 10 + digit(c);
+    }
+    return value;
+}
+
 // Parse "HH:MM" into minutes since midnight; -1 if invalid.
 int32_t parse_clock(util::span<const uint8_t> text)
 {
@@ -63,7 +78,39 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << ",\"wind_speed\":" << util::fixed(r.wind_speed.value, 2)
         << ",\"wind_direction\":" << r.wind_direction.value
         << ",\"wind_compass\":\"" << compass_point(r.wind_direction.value)
-        << "\"}\n";
+        << "\",\"rain\":" << util::fixed(r.rain.value, 2)
+        << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2) << "}\n";
+}
+
+// One log row: seq,day,time,temperature,humidity,wind_speed,wind_direction,rain
+void write_csv_row(util::text_stream& out, const weather_log::entry& e)
+{
+    const weather_reading& r = e.reading;
+    out << e.sequence << ',' << r.day << ',' << r.time << ','
+        << util::fixed(r.temperature.value, 2) << ','
+        << util::fixed(r.humidity.value, 2) << ','
+        << util::fixed(r.wind_speed.value, 2) << ',' << r.wind_direction.value
+        << ',' << util::fixed(r.rain.value, 2) << '\n';
+}
+
+// A page of the log, starting at sequence number `from`:
+//   log next=<sequence to ask for next> count=<rows in this reply>
+//   <rows>
+// The client repeats with "log <next>" until count=0.
+void write_log_page(
+    util::text_stream& out,
+    const weather_log& log,
+    uint32_t from)
+{
+    constexpr size_t ROWS_PER_PAGE = 20; // 20 rows of < 64 bytes fit a frame
+    const size_t first = log.find(from);
+    const size_t available = log.size() - first;
+    const size_t count = available < ROWS_PER_PAGE ? available : ROWS_PER_PAGE;
+    const uint32_t next =
+        count > 0 ? log[first + count - 1].sequence + 1 : log.next_sequence();
+    out << "log next=" << next << " count=" << count << '\n';
+    for(size_t i = first; i < first + count; ++i)
+        write_csv_row(out, log[i]);
 }
 } // namespace
 
@@ -95,10 +142,36 @@ size_t weather_service::handle(
                 << '\n';
         }
     }
+    else if(equals(command, "log"))
+        write_log_page(out, _station.log(), 0);
+    else if(starts_with(command, "log "))
+    {
+        const int32_t from = parse_number(command.subspan(4));
+        if(from < 0)
+            out << "error: expected log <sequence>\n";
+        else
+            write_log_page(out, _station.log(), static_cast<uint32_t>(from));
+    }
+    else if(starts_with(command, "advance "))
+    {
+        constexpr int32_t MAX_MINUTES = 3 * 24 * 60;
+        const int32_t minutes = parse_number(command.subspan(8));
+        if(minutes < static_cast<int32_t>(weather_station::READING_MINUTES) ||
+           minutes > MAX_MINUTES)
+            out << "error: expected advance <minutes> (10.." << MAX_MINUTES
+                << ")\n";
+        else
+        {
+            _station.fast_forward(static_cast<uint32_t>(minutes));
+            const weather_reading& r = _station.latest();
+            out << "ok advanced to day " << r.day << ' ' << r.time << '\n';
+        }
+    }
     else if(equals(command, "ping"))
         out << "pong\n";
     else if(equals(command, "help"))
-        out << "commands: weather, time HH:MM, ping, help\n";
+        out << "commands: weather, time HH:MM, log [sequence], "
+               "advance <minutes>, ping, help\n";
     else
         out << "error: unknown command\n";
 

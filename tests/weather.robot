@@ -19,6 +19,8 @@ Weather Reading Has All Quantities
     Dictionary Should Contain Key    ${r}    wind_speed
     Dictionary Should Contain Key    ${r}    wind_direction
     Dictionary Should Contain Key    ${r}    wind_compass
+    Dictionary Should Contain Key    ${r}    rain
+    Dictionary Should Contain Key    ${r}    rain_today
     Should Be Equal As Integers    ${r}[day]    1
     Should Match Regexp    ${r}[time]    ^\\d\\d:\\d\\d$
 
@@ -32,6 +34,7 @@ Readings Stay In Physical Ranges
         Should Be True    15 <= ${r}[3] <= 100    msg=Humidity ${r}[3] %RH
         Should Be True    0 <= ${r}[4] <= 40    msg=Wind speed ${r}[4] m/s
         Should Be True    0 <= ${r}[5] <= 359    msg=Wind direction ${r}[5] deg
+        Should Be True    0 <= ${r}[7] <= 2    msg=Rain ${r}[7] mm in 10 minutes
     END
 
 Temperature Follows The Daily Cycle
@@ -78,3 +81,58 @@ Invalid Time Is Rejected
     Should Be Equal    ${reply}    error: expected time HH:MM
     ${reply}=    Send UDP Command    time 1:00
     Should Be Equal    ${reply}    error: expected time HH:MM
+
+Fast-Forward Logs A Reading Every Ten Minutes
+    ${before}=    Fetch Weather Log
+    ${reply}=    Send UDP Command    advance 1440
+    Should Match Regexp    ${reply}    ^ok advanced to day 2 \\d\\d:\\d\\d$
+    ${after}=    Fetch Weather Log
+    ${added}=    Evaluate    len($after) - len($before)
+    Should Be True    144 <= ${added} <= 146    msg=${added} readings for one simulated day
+
+Fast-Forward Rejects Invalid Durations
+    ${reply}=    Send UDP Command    advance 5
+    Should Start With    ${reply}    error: expected advance <minutes>
+    ${reply}=    Send UDP Command    advance 99999
+    Should Start With    ${reply}    error: expected advance <minutes>
+
+Log Is Served In Pages
+    Send UDP Command    advance 600
+    ${page}=    Send UDP Command    log 0
+    Should Match Regexp    ${page}    ^log next=20 count=20\\n0,1,06:00,
+    ${page}=    Send UDP Command    log 99999
+    Should Match Regexp    ${page}    ^log next=\\d+ count=0$
+    ${reply}=    Send UDP Command    log abc
+    Should Be Equal    ${reply}    error: expected log <sequence>
+
+Rain Falls In Showers Measured By A Tipping Bucket
+    [Documentation]    Over three simulated days it rains at least once, in
+    ...                multiples of the 0.2 mm bucket, and not all the time.
+    Send UDP Command    advance 4320
+    ${log}=    Fetch Weather Log
+    ${rain}=    Evaluate    [r["rain"] for r in $log]
+    ${total}=    Evaluate    sum($rain)
+    ${rainy}=    Evaluate    sum(1 for x in $rain if x > 0)
+    Should Be True    ${total} > 0    msg=No rain in three days
+    Should Be True    ${rainy} < len($rain) / 3    msg=Rain in ${rainy} of ${{len($rain)}} readings
+    ${not_tips}=    Evaluate    [x for x in $rain if abs(x / 0.2 - round(x / 0.2)) > 1e-6]
+    Should Be Empty    ${not_tips}    msg=Not multiples of 0.2 mm: ${not_tips}
+
+It Is More Humid When It Rains
+    Send UDP Command    advance 4320
+    ${log}=    Fetch Weather Log
+    ${wet}=    Evaluate    [r["humidity"] for r in $log if r["rain"] > 0]
+    ${dry}=    Evaluate    [r["humidity"] for r in $log if r["rain"] == 0]
+    Should Not Be Empty    ${wet}
+    ${difference}=    Evaluate    sum($wet) / len($wet) - sum($dry) / len($dry)
+    Should Be True    ${difference} > 10    msg=Only ${difference} %RH more humid in rain
+
+Daily Rain Total Counts From Midnight
+    Send UDP Command    advance 4320
+    ${now}=    Query Weather
+    ${log}=    Fetch Weather Log
+    # Only rows up to the queried reading: the weather task keeps logging.
+    # (Robot variables can't be used inside a generator, so pass them in.)
+    ${today}=    Evaluate
+    ...    (lambda log, day, until: round(sum(r["rain"] for r in log if r["day"] == day and r["time"] <= until), 2))($log, $now["day"], $now["time"])
+    Should Be Equal As Numbers    ${now}[rain_today]    ${today}

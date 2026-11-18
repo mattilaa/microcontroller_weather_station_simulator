@@ -26,7 +26,7 @@ Prints Command Help On Boot
     Wait For Output    h\\s+help
     Wait For Output    s\\s+status
     Wait For Output    w\\s+weather report
-    Wait For Output    d\\s+dump weather history
+    Wait For Output    d\\s+dump the last 8 readings
     Wait For Output    n\\s+network status
     Wait For Output    v\\s+toggle verbose output
     Wait For Output    q\\s+quit QEMU

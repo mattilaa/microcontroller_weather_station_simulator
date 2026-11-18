@@ -31,7 +31,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: tests/requirements.txt
+          cache-dependency-path: |
+            tests/requirements.txt
+            tools/requirements.txt
 
       - name: Install tools
         # Pin clang-format so CI formats exactly like the developer machines.
@@ -140,7 +142,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: tests/requirements.txt
+          cache-dependency-path: |
+            tests/requirements.txt
+            tools/requirements.txt
 
       - name: Install test dependencies
         run: pip install -r tests/requirements.txt

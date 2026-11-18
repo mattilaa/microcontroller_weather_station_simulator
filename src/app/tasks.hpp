@@ -17,43 +17,6 @@ struct settings
     bool verbose = true;
 };
 
-// A virtual LED (stands in for a GPIO pin).
-class led
-{
-public:
-    void toggle()
-    {
-        _on = !_on;
-    }
-
-    bool is_on() const
-    {
-        return _on;
-    }
-
-private:
-    bool _on = false;
-};
-
-class heartbeat_task final : public task
-{
-public:
-    constexpr heartbeat_task(
-        led& led,
-        util::text_stream& out,
-        const settings& settings)
-        : task("heartbeat", 500), _led(led), _out(out), _settings(settings)
-    {
-    }
-
-    void run(uint64_t now_ms) override;
-
-private:
-    led& _led;
-    util::text_stream& _out;
-    const settings& _settings;
-};
-
 // Reads all weather sensors once per second.
 class weather_task final : public task
 {
@@ -99,14 +62,12 @@ public:
         const hal::pl011& uart,
         util::text_stream& out,
         settings& settings,
-        const led& led,
         const weather_station& station,
         const hal::virtio_net& nic,
         const net::stack& stack,
         const scheduler& scheduler)
         : task("console", 10), _uart(uart), _out(out), _settings(settings),
-          _led(led), _station(station), _nic(nic), _stack(stack),
-          _scheduler(scheduler)
+          _station(station), _nic(nic), _stack(stack), _scheduler(scheduler)
     {
     }
 
@@ -122,7 +83,6 @@ private:
     const hal::pl011& _uart;
     util::text_stream& _out;
     settings& _settings;
-    const led& _led;
     const weather_station& _station;
     const hal::virtio_net& _nic;
     const net::stack& _stack;

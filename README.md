@@ -6,10 +6,15 @@ A bare-metal AArch64 program (no operating system) that runs a microcontroller-s
 main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C++20
 and built with CMake.
 
-It's a small simulated **weather station**: temperature, humidity, wind speed and wind
-direction sensors read a simulated weather model. Readings are printed on the UART and
-served over **Ethernet**, through a virtio-net driver and a minimal IPv4 stack (ARP,
-ping, UDP).
+It's a small simulated **weather station**: temperature, humidity, wind speed, wind
+direction and rain sensors read a simulated weather model. Readings are printed on the
+UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
+IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
+the Finnish Meteorological Institute's forecast chart:
+
+![Two simulated days](docs/weather_chart.png)
+
+**Just the commands** for setup, running and testing: [howto.txt](howto.txt).
 
 ## Embedded C++ subset
 
@@ -52,14 +57,13 @@ The main loop is a small cooperative scheduler:
 
 | Task        | Period  | What it does                                 |
 |-------------|---------|----------------------------------------------|
-| `heartbeat` | 500 ms  | Toggles a virtual LED                        |
-| `weather`   | 1000 ms | Reads all four sensors; keeps moving averages and a history of 8 readings |
+| `weather`   | 1000 ms | Reads all five sensors, updates moving averages and logs the reading |
 | `network`   | 5 ms    | Polls the virtio-net device and answers ARP, ping and UDP |
 | `console`   | 10 ms   | Checks the UART for single-key commands      |
 
 All tasks live in a fixed table; the `scheduler` is given that table at compile time.
 
-Console commands: `h` help, `s` status, `w` weather report, `d` dump weather history,
+Console commands: `h` help, `s` status, `w` weather report, `d` dump the last 8 readings,
 `n` network status, `v` toggle verbose output, `q` quit QEMU.
 
 ## Weather simulation
@@ -73,10 +77,12 @@ simulated minutes and a day lasts 2.4 minutes. Day 1 starts at 06:00.
 | Humidity | falls about 3 %RH per °C of warming (relative humidity drops as air warms), plus its own slow moisture drift |
 | Wind speed | pulled toward a daily mean (1–5 m/s, windiest in the afternoon) with random variation, plus occasional gusts that decay |
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
+| Cloudiness | follows a slowly wandering trend; showers build and clear over hours |
+| Rain | falls when cloudiness passes a threshold, harder the cloudier it gets (up to ~5 mm/h); clouds flatten the daily temperature swing, rain cools the air, and humidity builds up during rain and dries out over the following hours |
 
 The slow parts are mean-reverting random processes (Ornstein–Uhlenbeck style). Each
 sensor then adds its own noise and rounds to its resolution, as a real instrument
-would. Without floating point, `sin()` is an integer approximation (Bhaskara I).
+would. The rain gauge is a tipping bucket: it reports rain only in whole 0.2 mm tips. Without floating point, `sin()` is an integer approximation (Bhaskara I).
 Wind direction is averaged on the circle, so 350° and 10° average to 0°, not 180°.
 
 ## Network
@@ -88,8 +94,10 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | `{"day":1,"time":"06:10","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW"}` |
+| `weather` | `{"day":1,"time":"06:10","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
+| `log [sequence]` | one page (up to 20 rows) of logged readings as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
+| `advance MINUTES` | fast-forwards the simulation (10…4320 minutes), logging a reading every 10 simulated minutes |
 | `ping` | `pong` |
 | `help` | the list of commands |
 
@@ -99,6 +107,34 @@ listens on port 5000; each datagram is one command:
 echo weather | nc -u -w1 127.0.0.1 5555
 ```
 
+The firmware keeps the last 512 readings (3.5 simulated days) in its log.
+
+## Importing and plotting the data
+
+`tools/weather_tool.py` imports the log over UDP into a CSV file and plots it with
+matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlaitos.fi/saa/helsinki?forecast=daily):
+
+- **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
+  humidity), and hourly precipitation bars on the right-hand mm axis.
+- **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
+  the hourly mean speed under each arrow.
+- **Time axis:** alternating hour bands and a dashed line at each midnight.
+
+With the [virtual environment](#python-virtual-environment) set up and active:
+
+```sh
+# With the firmware running (cmake --build build --target run):
+python tools/weather_tool.py fetch --out weather.csv            # import new readings
+python tools/weather_tool.py fetch --out weather.csv --advance 1440   # fast-forward a day first
+python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
+
+# Or everything at once, with its own QEMU:
+python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 --hours 48
+```
+
+`fetch` appends only readings that aren't in the CSV yet, so it can be run repeatedly
+while the firmware keeps measuring.
+
 ## Requirements
 
 - CMake ≥ 3.20 and Ninja (or Make)
@@ -106,6 +142,35 @@ echo weather | nc -u -w1 127.0.0.1 5555
 - A cross compiler, either:
   - LLVM clang++ + lld (default): `brew install llvm lld`
   - or the Arm GNU toolchain `aarch64-none-elf-g++`
+- Python 3.11 or newer (CI uses 3.12), for the tests and the plotting tool
+
+## Python virtual environment
+
+Set up a virtual environment before installing any Python packages. That keeps the
+project's packages (Robot Framework, pyelftools, matplotlib) out of your system Python,
+and pins them to the versions in the `requirements.txt` files. Do this once, in the
+repository root:
+
+```sh
+python3 -m venv .venv                   # create it (.venv/ is gitignored)
+source .venv/bin/activate               # activate it (fish: .venv/bin/activate.fish)
+python -m pip install --upgrade pip
+pip install -r tests/requirements.txt   # test dependencies + the plotting tool's
+```
+
+`tests/requirements.txt` includes `tools/requirements.txt`. If you only want the plotting
+tool, `pip install -r tools/requirements.txt` is enough.
+
+- **New terminals:** activate the environment again in every new terminal with
+  `source .venv/bin/activate`. Your prompt shows `(.venv)` while it's active, and
+  `deactivate` leaves it.
+- **CMake:** configure a new build directory with the environment active. CMake records
+  which Python `ctest` uses, and Robot Framework is only installed in the virtual
+  environment. CMake keeps the Python it found first, so activating the environment and
+  re-running `cmake` on an existing build directory doesn't switch it. Either delete the
+  build directory and configure again, or point CMake at the environment explicitly:
+  `cmake -B build -DPython3_EXECUTABLE=$PWD/.venv/bin/python`.
+- **Starting over:** delete `.venv/` and repeat the steps above.
 
 ## Build & run
 
@@ -131,9 +196,10 @@ UART and over Ethernet:
 | Suite | Covers |
 |-------|--------|
 | `boot.robot` | banner, EL1, network bring-up, running without a NIC, rejecting a legacy virtio device |
-| `tasks.robot` | heartbeat and sensor timing, simulated clock rate |
+| `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
-| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock |
+| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, daily rain totals, the log and fast-forward |
+| `tools.robot` | `weather_tool.py demo` end to end (QEMU, import over UDP, plot), and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
 | `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, size budget |
 
@@ -142,9 +208,9 @@ netdev carries each Ethernet frame as a UDP datagram between QEMU and the librar
 needs no root rights or TAP devices, and lets the tests build and check raw frames,
 checksums included.
 
+With the [virtual environment](#python-virtual-environment) set up and active:
+
 ```sh
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r tests/requirements.txt
 cmake -B build -G Ninja                       # configure with the venv active
 cmake --build build
 ctest --test-dir build --output-on-failure    # report: build/robot/log.html
@@ -183,7 +249,8 @@ lldb build/firmware.elf -o "gdb-remote 1234"
 ```
 CMakeLists.txt                      build flags, objcopy to .bin, run/debug targets, ctest
 .github/workflows/ci.yml            GitHub Actions pipeline
-tests/*.robot                       Robot Framework suites (boot, tasks, console, weather, ethernet, image)
+tests/*.robot                       Robot Framework suites (boot, tasks, console, weather, ethernet, tools, image)
+tools/weather_tool.py               import the reading log over UDP, plot it (matplotlib)
 tests/libraries/                    Python keyword libraries: QEMU/UART driver, network peer, ELF checks
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
@@ -191,9 +258,9 @@ linker/qemu_virt.ld                 memory map: RAM at 0x40000000, .init_array, 
 src/startup.S                       _start: park secondary cores, set up the stack, enable FP, zero .bss, run constructors, call main
 src/main.cpp                        static object graph + main loop
 src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
-src/app/tasks.*                     led and the heartbeat/weather/network/console tasks
+src/app/tasks.*                     weather/network/console tasks
 src/app/weather_model.*             simulated weather (daily cycles + random processes)
-src/app/weather_station.*           sensors (noise, resolution), averages, history
+src/app/weather_station.*           sensors (noise, resolution, rain gauge), averages, reading log
 src/app/weather_service.*           UDP command protocol (port 5000)
 src/app/units.*                     fixed-point units and their formatting
 src/app/console.*                   UART text output

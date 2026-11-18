@@ -14,8 +14,8 @@ ${FIRMWARE}         build/firmware.elf
 ${QEMU}             qemu-system-aarch64
 ${BOOT_TIMEOUT}     10s
 # One line of sensor readings, e.g.
-# "06:10 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW"
-${READING}          (\\d\\d):(\\d\\d) temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+)
+# "06:10 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW | rain 0.40 mm"
+${READING}          (\\d\\d):(\\d\\d) temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+) \\| rain (\\d+\\.\\d\\d) mm
 
 
 *** Keywords ***

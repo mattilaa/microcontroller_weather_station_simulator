@@ -1,2 +1,3 @@
 robotframework==7.5.1
 pyelftools==0.33
+-r ../tools/requirements.txt

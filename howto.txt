@@ -1,0 +1,25 @@
+SETUP (once)
+  brew install cmake ninja qemu llvm lld
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -r tests/requirements.txt
+  cmake -B build -G Ninja
+  cmake --build build
+
+RUN THE SIMULATION
+  source .venv/bin/activate
+  cmake --build build --target run                  # 'q' quits
+  echo weather | nc -u -w1 127.0.0.1 5555           # in another terminal
+  python tools/weather_tool.py demo --minutes 2880 --hours 48   # -> weather.png
+
+PLOT THE MEASURED DATA (firmware running with the 'run' target above)
+  python tools/weather_tool.py fetch --out weather.csv          # import readings
+  python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
+  # fetch again later to add new readings; --advance 1440 fast-forwards a day first
+
+TESTS
+  source .venv/bin/activate
+  cmake --build build
+  ctest --test-dir build --output-on-failure        # report: build/robot/log.html
+  robot --pythonpath tests/libraries tests/weather.robot          # one suite
+  robot --pythonpath tests/libraries --test "Quit*" tests         # one test

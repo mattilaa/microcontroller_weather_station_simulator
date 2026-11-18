@@ -8,23 +8,7 @@ Test Setup          Boot Firmware
 Test Teardown       Shut Down Firmware
 
 
-*** Variables ***
-${LED_LINE}         \\[\\s*(\\d+) ms\\] LED (?:ON|OFF)
-
-
 *** Test Cases ***
-Heartbeat Toggles LED Every 500 ms
-    ${output}=    Collect Output    3.2s
-    ${states}=    Find All    LED (ON|OFF)    ${output}
-    ${count}=    Get Length    ${states}
-    Should Be True    ${count} >= 5    msg=Only ${count} LED updates in 3.2 s
-    FOR    ${i}    IN RANGE    1    ${count}
-        Should Not Be Equal    ${states}[${i}]    ${states}[${i - 1}]
-        ...    msg=LED did not alternate: ${states}
-    END
-    ${timestamps}=    Find All    ${LED_LINE}    ${output}
-    Differences Should Be Within    ${timestamps}    450    650
-
 Weather Sensors Are Read Every Second
     ${output}=    Collect Output    3.2s
     ${timestamps}=    Find All    \\[\\s*(\\d+) ms\\] \\d\\d:\\d\\d temp    ${output}

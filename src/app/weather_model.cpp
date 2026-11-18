@@ -61,12 +61,28 @@ uint32_t weather_model::minute_of_day() const
 
 void weather_model::advance(uint32_t real_ms)
 {
-    const uint32_t sim_seconds = static_cast<uint32_t>(
-        static_cast<uint64_t>(real_ms) * SIM_SECONDS_PER_REAL_SECOND / 1000);
+    advance_simulated(
+        static_cast<uint32_t>(
+            static_cast<uint64_t>(real_ms) * SIM_SECONDS_PER_REAL_SECOND /
+            1000));
+}
+
+void weather_model::advance_simulated(uint32_t sim_seconds)
+{
     _sim_seconds += sim_seconds;
     if(sim_seconds > 0)
         step_random_processes(sim_seconds);
     update_conditions();
+    // Rain falls at the new rate over the elapsed time.
+    _rain_fallen += static_cast<int64_t>(_conditions.rain_rate) * sim_seconds;
+}
+
+int32_t weather_model::take_rain()
+{
+    // _rain_fallen is in (0.01 mm/h) * s; keep the remainder for next time.
+    const int64_t amount = _rain_fallen / 3600;
+    _rain_fallen -= amount * 3600;
+    return static_cast<int32_t>(amount);
 }
 
 void weather_model::set_time_of_day(uint32_t minute)
@@ -91,6 +107,23 @@ void weather_model::step_random_processes(uint32_t dt)
         -1000,
         1000);
 
+    // Cloudiness follows a slowly wandering trend (hours to build up and
+    // clear), so showers ramp up and die out instead of flickering. It
+    // spends roughly a seventh of the time above the rain threshold.
+    _cloud_trend = util::clamp(
+        revert(_cloud_trend, 350, dt, 6 * 3600, _rng.gaussian(60)),
+        0,
+        1000);
+    _cloud = util::clamp(
+        revert(_cloud, _cloud_trend, dt, 3600, _rng.gaussian(20)),
+        0,
+        1000);
+
+    // Wetness builds up within half an hour of rain and dries over hours.
+    const bool raining = _cloud > RAIN_THRESHOLD;
+    _wetness = raining ? revert(_wetness, 1000, dt, 30 * 60, 0)
+                       : revert(_wetness, 0, dt, 2 * 3600, 0);
+
     // Sustained wind follows the daily mean with a 30 min time constant.
     _sustained_wind = util::clamp(
         revert(
@@ -102,10 +135,10 @@ void weather_model::step_random_processes(uint32_t dt)
         0,
         2000);
 
-    // Gusts: decay by 40 % per step; 5 % chance of a new one each step.
-    _gust = _gust * 6 / 10;
-    if(_rng.below(100) < 5)
-        _gust += _rng.between(300, 800);
+    // Gusts: decay by half each step; 6 % chance of a new 1-3 m/s gust.
+    _gust = _gust / 2;
+    if(_rng.below(100) < 6)
+        _gust += _rng.between(100, 300);
 
     // Prevailing direction drifts ~5 degrees per step, pulled back toward
     // SW over half a day.
@@ -120,16 +153,30 @@ void weather_model::step_random_processes(uint32_t dt)
 void weather_model::update_conditions()
 {
     const uint32_t minute = minute_of_day();
-    const int32_t temperature = daily_temperature(minute) + _front;
 
-    // Relative humidity drops ~3 %RH per degree of warming above the mean.
-    const int32_t humidity = 6500 - 3 * (temperature - 1500) + _moisture;
+    // Rain: 0 below the threshold, then 0.015 mm/h per step of cloudiness
+    // (up to ~5 mm/h under a full overcast).
+    const int32_t rain_rate =
+        _cloud > RAIN_THRESHOLD ? (_cloud - RAIN_THRESHOLD) * 3 / 2 : 0;
+
+    // Clouds flatten the daily swing (to 75 % under full overcast) and rain
+    // cools the air (1 C at 4 mm/h).
+    const int32_t clear_sky_swing = daily_temperature(minute) - 1500;
+    const int32_t temperature = 1500 +
+                                clear_sky_swing * (1000 - _cloud / 4) / 1000 +
+                                _front - rain_rate / 4;
+
+    // Relative humidity drops ~3 %RH per degree of warming above the mean,
+    // rises with cloudiness (+/- 7 %RH) and with wetness (up to +25 %RH).
+    const int32_t humidity = 6500 - 3 * (temperature - 1500) + _moisture +
+                             (_cloud - 350) * 2 + _wetness * 5 / 2;
 
     _conditions = {
         .temperature = temperature,
         .humidity = util::clamp(humidity, 1500, 10000),
         .wind_speed = util::clamp(_sustained_wind + _gust, 0, 4000),
         .wind_direction = util::wrap(_prevailing / 10 + _vane_swing, 360),
+        .rain_rate = rain_rate,
     };
 }
 

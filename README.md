@@ -195,8 +195,7 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   The LCL (cloud base) is a dashed line.
 - **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
   the hourly mean speed under each arrow.
-- **Time axis:** a dashed line at each midnight; the temperature panel also has
-  alternating hour bands.
+- **Time axis:** a dashed line at each midnight.
 
 With the [virtual environment](#python-virtual-environment) set up and active:
 

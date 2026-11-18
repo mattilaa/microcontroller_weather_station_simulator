@@ -28,8 +28,8 @@ repeatedly. `--advance MINUTES` fast-forwards the simulation first.
 
 The chart follows the Finnish Meteorological Institute's daily forecast chart:
 temperature (red) and dew point (green, dotted) on the left axis, hourly
-precipitation bars on the right axis, alternating hour bands, a dashed line at
-midnight, and a wind panel underneath with hourly direction arrows and speeds.
+precipitation bars on the right axis, a dashed line at midnight, a cloud panel
+on a pressure axis, and a wind panel with hourly direction arrows and speeds.
 """
 
 import argparse
@@ -223,7 +223,6 @@ PRESSURE_TICKS = [1000, 850, 700, 500, 300, 200]
 # Standard-atmosphere heights of those levels, for the km scale.
 PRESSURE_KM = {1000: "0.1", 850: "1.5", 700: "3.0", 500: "5.6", 300: "9.2", 200: "11.8"}
 WIND_COLOR = "#2f4f6f"
-BAND_COLOR = "#f4f4f4"
 GRID_COLOR = "#dddddd"
 
 
@@ -394,12 +393,9 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.set_zorder(ax_r.get_zorder() + 1)
     ax_t.patch.set_visible(False)
 
-    # Alternating hour bands and a dashed line at each midnight. In the top
-    # panel they go on the back (rain) axes, or they would cover the bars.
+    # A dashed line at each midnight, across all panels.
     hour = x_begin
     while hour < x_end:
-        if hour.hour % 2 == 1:  # temperature panel only; the wind panel stays plain
-            ax_r.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
         if hour.hour == 0 and hour > x_begin:
             for ax in (ax_t, ax_w) + ((ax_c,) if ax_c is not None else ()):
                 ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=5)

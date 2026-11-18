@@ -50,7 +50,8 @@ struct weather_reading
     clock_time time;
     centi_celsius temperature;
     centi_percent humidity;
-    centi_mps wind_speed;
+    centi_mps wind_speed; // samples: the moment; records: the mean
+    centi_mps wind_gust;  // highest peak (gust) wind seen in the interval
     compass_degrees wind_direction;
     centi_mm rain;       // samples: since the previous update; records: in
                          // the 10-minute interval
@@ -100,7 +101,7 @@ public:
     static constexpr size_t CAPACITY = 256;
 
     // One record, packed into small integers to fit the RAM budget (44
-    // bytes instead of a full weather_reading's 120). rain_today and the
+    // bytes instead of a full weather_reading's 124). rain_today and the
     // derived cloud levels aren't kept.
     struct entry
     {
@@ -109,7 +110,8 @@ public:
         uint16_t minute_of_day;
         int16_t temperature;       // 0.01 degC
         uint16_t humidity;         // 0.01 %RH
-        uint16_t wind_speed;       // 0.01 m/s
+        uint16_t wind_speed;       // 0.01 m/s, mean
+        uint16_t wind_gust;        // 0.01 m/s, highest in the interval
         uint16_t wind_direction;   // degrees
         uint16_t rain;             // 0.01 mm in the interval
         uint16_t lcl;              // hPa
@@ -256,6 +258,7 @@ private:
     int64_t _sum_temperature = 0;
     int64_t _sum_humidity = 0;
     int64_t _sum_wind_speed = 0;
+    int32_t _interval_gust = 0; // highest peak wind this interval, 0.01 m/s
     int64_t _sum_cloud_cover = 0;
     int64_t _sum_pressure = 0;
     int64_t _sum_cirrus = 0;

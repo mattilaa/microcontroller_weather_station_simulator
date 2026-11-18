@@ -28,6 +28,7 @@ def summarise(log):
         "humidity_min": min(values("humidity")),
         "wind_mean": sum(wind) / len(wind),
         "wind_max": max(wind),
+        "gust_max": max(values("wind_gust")),
         "rain": round(sum(values("rain")), 2),
         "rain_max_hour": round(max(hourly.values()), 2),
         "pressure_min": min(values("pressure")),

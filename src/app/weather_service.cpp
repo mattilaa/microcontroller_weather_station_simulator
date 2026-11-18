@@ -76,6 +76,7 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << ",\"temperature\":" << util::fixed(r.temperature.value, 2)
         << ",\"humidity\":" << util::fixed(r.humidity.value, 2)
         << ",\"wind_speed\":" << util::fixed(r.wind_speed.value, 2)
+        << ",\"wind_gust\":" << util::fixed(r.wind_gust.value, 2)
         << ",\"wind_direction\":" << r.wind_direction.value
         << ",\"wind_compass\":\"" << compass_point(r.wind_direction.value)
         << "\",\"rain\":" << util::fixed(r.rain.value, 2)
@@ -109,7 +110,7 @@ void write_json(util::text_stream& out, const weather_reading& r)
 // cirrus_base,cirrus_top,altostratus_base,altostratus_top,
 // stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,
 // stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,
-// pressure
+// pressure,wind_gust
 void write_csv_row(util::text_stream& out, const weather_log::entry& e)
 {
     const weather_reading r = e.reading();
@@ -130,7 +131,7 @@ void write_csv_row(util::text_stream& out, const weather_log::entry& e)
         << c.stratus_top.value << ',' << c.stratocumulus_top.value << ','
         << c.nimbostratus_top.value << ',' << c.altocumulus_base.value << ','
         << c.altocumulus_top.value << ',' << util::fixed(r.pressure.value, 1)
-        << '\n';
+        << ',' << util::fixed(r.wind_gust.value, 2) << '\n';
 }
 
 // A page of the log, starting at sequence number `from`:

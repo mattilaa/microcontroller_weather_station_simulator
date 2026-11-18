@@ -47,7 +47,7 @@ COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_
            "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
            "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
            "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top", "stratocumulus_top",
-           "nimbostratus_top", "altocumulus_base", "altocumulus_top", "pressure"]
+           "nimbostratus_top", "altocumulus_base", "altocumulus_top", "pressure", "wind_gust"]
 CLOUD_LAYER_COLUMNS = COLUMNS[COLUMNS.index("lcl"):COLUMNS.index("pressure")]
 SCENARIOS = ["default", "summer_heat", "winter_high", "storm", "thunderstorm"]
 SERVICE_PORT = 5000
@@ -160,6 +160,7 @@ def load(path):
                     "cloud_cover": float(row["cloud_cover"]) if row.get("cloud_cover") else None,
                     **{key: float(row[key]) if row.get(key) else None for key in CLOUD_LAYER_COLUMNS},
                     "pressure": float(row["pressure"]) if row.get("pressure") else None,
+                    "wind_gust": float(row["wind_gust"]) if row.get("wind_gust") else None,
                 }
             )
     readings.sort(key=lambda r: r["when"])
@@ -425,13 +426,23 @@ def draw(fig, readings, hours=24, title=None):
         draw_cloud_panel(ax_c, readings)
 
     # -- wind panel ----------------------------------------------------------
+    # Solid: the mean wind of each 10-minute record. Dotted: the gusts, the
+    # highest wind sampled in each interval (older CSVs have none).
     speeds = [r["wind_speed"] for r in readings]
-    w_high = max(4, math.ceil(max(speeds) / 2) * 2)
+    gusts = [r.get("wind_gust") for r in readings]
+    has_gusts = any(g is not None for g in gusts)
+    top_speed = max(speeds + [g for g in gusts if g is not None])
+    w_high = max(4, math.ceil(top_speed / 2) * 2)
     ax_w.set_ylim(0, w_high * 1.7)  # top part holds the arrows
     ax_w.set_yticks(range(0, w_high + 1, max(1, w_high // 2)))
     ax_w.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
     ax_w.fill_between(times, speeds, color=WIND_COLOR, alpha=0.12, lw=0, zorder=2)
-    ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Wind speed")
+    ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Mean wind")
+    if has_gusts:
+        ax_w.plot([t for t, g in zip(times, gusts) if g is not None], [g for g in gusts if g is not None],
+                  color=WIND_COLOR, lw=1.4, ls=(0, (1, 1.8)), zorder=3, label="Gusts")
+        ax_w.legend(loc="lower left", bbox_to_anchor=(0.03, 0.98), ncol=2, frameon=False, fontsize=9,
+                    handlelength=2.2, columnspacing=1.2)
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
 
     # Surface pressure on the right-hand axis (high in an anticyclone, deep

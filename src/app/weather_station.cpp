@@ -66,6 +66,7 @@ void weather_log::add(const weather_reading& r)
         .temperature = pack<int16_t>(r.temperature.value, -32768, 32767),
         .humidity = pack<uint16_t>(r.humidity.value, 0, 10000),
         .wind_speed = pack<uint16_t>(r.wind_speed.value, 0, 65535),
+        .wind_gust = pack<uint16_t>(r.wind_gust.value, 0, 65535),
         .wind_direction = pack<uint16_t>(r.wind_direction.value, 0, 359),
         .rain = pack<uint16_t>(r.rain.value, 0, 65535),
         .lcl = pack<uint16_t>(r.clouds.lcl.value, 0, 1100),
@@ -97,6 +98,7 @@ weather_reading weather_log::entry::reading() const
         .temperature = {temperature},
         .humidity = {humidity},
         .wind_speed = {wind_speed},
+        .wind_gust = {wind_gust},
         .wind_direction = {wind_direction},
         .rain = {rain},
         .rain_today = {0},
@@ -218,12 +220,19 @@ void weather_station::sample(uint32_t weight_seconds)
     _update_rain += tipped;
     _rain_today += tipped;
 
+    // Gust: the highest peak wind the anemometer has seen in the interval.
+    const int32_t wind_speed = _anemometer.measure(truth.wind_speed);
+    const int32_t peak = _anemometer.measure(truth.wind_gust);
+    if(peak > _interval_gust)
+        _interval_gust = peak;
+
     _latest = {
         .day = _model.day(),
         .time = {_model.second_of_day()},
         .temperature = {_thermometer.measure(truth.temperature)},
         .humidity = {_hygrometer.measure(truth.humidity)},
-        .wind_speed = {_anemometer.measure(truth.wind_speed)},
+        .wind_speed = {wind_speed},
+        .wind_gust = {_interval_gust},
         .wind_direction = {direction},
         .rain = {_update_rain},
         .rain_today = {_rain_today},
@@ -319,6 +328,7 @@ weather_reading weather_station::mean_of_interval() const
         .temperature = {mean(_sum_temperature)},
         .humidity = {mean(_sum_humidity)},
         .wind_speed = {mean(_sum_wind_speed)},
+        .wind_gust = {_interval_gust},
         .wind_direction = {util::wrap(mean(_sum_direction), 360)},
         .rain = {_interval_rain},
         .rain_today = {_rain_today},
@@ -358,6 +368,7 @@ void weather_station::close_record()
 void weather_station::reset_interval()
 {
     _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
+    _interval_gust = 0;
     _sum_cloud_cover = _sum_cirrus = _sum_altostratus = _sum_cumulus = 0;
     _sum_pressure = 0;
     _sum_cumulonimbus = _sum_lcl = _sum_cumulus_top = 0;

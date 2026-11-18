@@ -96,7 +96,7 @@ void console_task::print_weather()
          << "humidity:       " << r.humidity << " (10-min mean "
          << mean.humidity << ")\n"
          << "wind speed:     " << r.wind_speed << " (10-min mean "
-         << mean.wind_speed << ")\n"
+         << mean.wind_speed << ", gusts " << mean.wind_gust << ")\n"
          << "wind direction: " << r.wind_direction << " (10-min mean "
          << mean.wind_direction << ")\n"
          << "rain:           " << mean.rain << " in this interval (today "

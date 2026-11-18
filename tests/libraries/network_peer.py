@@ -219,7 +219,7 @@ class NetworkPeer:
                    "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
                    "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top",
                    "stratocumulus_top", "nimbostratus_top", "altocumulus_base", "altocumulus_top",
-                   "pressure"]
+                   "pressure", "wind_gust"]
         readings, next_sequence = [], int(start)
         while True:
             header, *rows = self.send_udp_command(f"log {next_sequence}").split("\n")
@@ -229,10 +229,10 @@ class NetworkPeer:
             for row in rows[: int(fields["count"])]:
                 values = dict(zip(columns, row.split(",")))
                 for key in columns:
-                    if key in ("time", "temperature", "humidity", "wind_speed", "rain", "pressure"):
+                    if key in ("time", "temperature", "humidity", "wind_speed", "rain", "pressure", "wind_gust"):
                         continue
                     values[key] = int(values[key])
-                for key in ("temperature", "humidity", "wind_speed", "rain", "pressure"):
+                for key in ("temperature", "humidity", "wind_speed", "rain", "pressure", "wind_gust"):
                     values[key] = float(values[key])
                 readings.append(values)
             next_sequence = int(fields["next"])

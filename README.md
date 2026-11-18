@@ -12,7 +12,7 @@ UART, logged, and served over **Ethernet**, through a virtio-net driver and a mi
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
 the Finnish Meteorological Institute's forecast chart:
 
-![Two simulated days](docs/weather_chart.png)
+![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
 **Just the commands** for setup, running and testing: [howto.txt](howto.txt).
 
@@ -170,6 +170,7 @@ a right-hand hPa axis.
 | Temperature | daily sine cycle, 15 °C ± 8 °C (coldest ~03:00, warmest ~15:00), plus a slowly drifting "weather front" offset of up to ±3 °C |
 | Humidity | falls about 3 %RH per °C of warming (relative humidity drops as air warms), plus its own slow moisture drift |
 | Wind speed | pulled toward a daily mean (1–5 m/s, windiest in the afternoon) with random variation, plus occasional gusts that decay |
+| Wind gusts | the peak (3-second) wind is 10–40 % above the wind of the moment, varying minute by minute. Each 10-minute record keeps the highest peak, which comes out around 1.45× its mean wind, a typical gust factor over land |
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
 | Cloud cover | low and middle cloud follows a slowly wandering trend; showers build and clear over hours. The sky imager reports total cover in whole percent, counting thin cirrus half |
 | Cloud layers | the cloudiness is split into ten types, each at its own level. Splitting it leaves the total, and so the rain, unchanged |
@@ -196,7 +197,7 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"pressure":1013.2,"speed":1,"scenario":"default"}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_gust":4.90,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"pressure":1013.2,"speed":1,"scenario":"default"}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
 | `log [sequence]` | one page (up to 9 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
@@ -232,8 +233,10 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   - cumulonimbus is a dark tower from the cloud base to the tropopause
 
   The LCL (cloud base) is a dashed line.
-- **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
-  the hourly mean speed under each arrow.
+- **Bottom panel:** wind. The solid line (with a light fill) is each 10-minute record's mean
+  wind. The dotted line is its gust, the highest peak wind in the interval, so the two
+  don't mix. Hourly arrows point where the wind blows to, with the hourly mean speed under
+  each arrow. Surface pressure runs on the right-hand hPa axis.
 - **Time axis:** a dashed line at each midnight.
 
 With the [virtual environment](#python-virtual-environment) set up and active:
@@ -256,7 +259,7 @@ python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 -
 ```
 
 The CSV columns are
-`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure`
+`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure,wind_gust`
 (cloud levels in hPa, cloud amounts in %, surface pressure in hPa with one decimal). Older CSVs without the newer columns at the end
 still plot: without layer levels the cirrus and altostratus fall back to fixed levels, and
 without any cloud columns there's no cloud panel.

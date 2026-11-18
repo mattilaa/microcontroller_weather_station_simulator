@@ -282,6 +282,12 @@ void weather_model::step(uint32_t dt)
         8700 * FINE,
         10850 * FINE);
 
+    // Gust factor for the coming minute: peaks 10..40 % above the wind of
+    // the moment. A 10-minute record keeps the highest of ten such peaks,
+    // which comes out around 1.4..1.6 times the record's mean wind, as
+    // measured over land.
+    _gust_factor = _gust_rng.between(1100, 1400);
+
     // Convective cells: mean-reverting over ~40 minutes, so they come and go.
     _cell = util::clamp(
         revert(_cell, 450 * FINE, dt, 40 * 60, _cell_rng.gaussian(67 * FINE)),
@@ -393,6 +399,10 @@ void weather_model::update_conditions()
         .temperature = temperature,
         .humidity = relative_humidity,
         .wind_speed = util::clamp((_sustained_wind + _gust) / FINE, 0, 4000),
+        .wind_gust = util::clamp(
+            (_sustained_wind + _gust) / FINE * _gust_factor / 1000,
+            0,
+            6000),
         .wind_direction =
             util::wrap(_prevailing / FINE / 10 + _vane_swing, 360),
         .rain_rate = rain_rate,

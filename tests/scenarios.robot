@@ -41,6 +41,7 @@ Severe Storm
     Should Be True    ${day}[pressure_min] <= 980    msg=Low only ${day}[pressure_min] hPa
     Should Be True    ${day}[wind_mean] >= 12    msg=Mean wind only ${day}[wind_mean] m/s
     Should Be True    ${day}[wind_max] >= 20    msg=Strongest wind only ${day}[wind_max] m/s
+    Should Be True    ${day}[gust_max] >= 30    msg=Strongest gust only ${day}[gust_max] m/s
     Should Be True    ${day}[rain] >= 20    msg=Only ${day}[rain] mm of rain
     Should Be True    ${day}[nimbostratus_max] >= 50    msg=No deep rain cloud
     Should Be True    ${day}[veering] >= 60    msg=Wind veered only ${day}[veering] degrees

@@ -14,6 +14,7 @@ struct weather_conditions
     int32_t temperature;    // 0.01 degC
     int32_t humidity;       // 0.01 %RH
     int32_t wind_speed;     // 0.01 m/s
+    int32_t wind_gust;      // 0.01 m/s, the peak (3-second) wind right now
     int32_t wind_direction; // degrees, 0..359 (where the wind comes from)
     int32_t rain_rate;      // 0.01 mm/h
     int32_t pressure;       // surface pressure, 0.1 hPa
@@ -190,6 +191,10 @@ private:
     // thunderstorms come in bursts. Own generator again.
     util::xorshift32 _cell_rng{0xce'115eedu};
     int32_t _cell = 450 * FINE;
+    // Gust factor: peak (3-second) wind over the wind of the moment,
+    // 1100..1400 per mille, varying minute by minute. Own generator.
+    util::xorshift32 _gust_rng{0x6057'f00du};
+    int32_t _gust_factor = 1250;
     int64_t _rain_fallen = 0; // since take_rain(), in 0.01 mm * 1 s / 1 h
 
     weather_conditions _conditions{};

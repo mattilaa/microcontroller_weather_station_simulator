@@ -26,7 +26,7 @@ Weather Reading Has All Quantities
     ...    cirrus_base    cirrus_top    altostratus_base    altostratus_top
     ...    stratus    stratocumulus    nimbostratus    altocumulus    stratus_top
     ...    stratocumulus_top    nimbostratus_top    altocumulus_base    altocumulus_top
-    ...    pressure    scenario
+    ...    pressure    scenario    wind_gust
         Dictionary Should Contain Key    ${r}    ${key}
     END
     Should Be Equal As Integers    ${r}[day]    1
@@ -73,6 +73,19 @@ Wind Varies Around The Prevailing South-West
     FOR    ${d}    IN    @{directions}
         Should Be True    120 <= ${d} <= 330    msg=Direction ${d} far from SW
     END
+
+Gusts Exceed The Mean Wind
+    [Documentation]    Each record's gust (highest peak wind in the interval)
+    ...                is above its mean wind, by a realistic gust factor.
+    Send UDP Command    advance 1440
+    ${log}=    Fetch Weather Log
+    FOR    ${r}    IN    @{log}
+        Should Be True    ${r}[wind_gust] >= ${r}[wind_speed]
+        ...    msg=Gust ${r}[wind_gust] m/s below the mean ${r}[wind_speed] m/s at ${r}[time]
+    END
+    ${factors}=    Evaluate    [r["wind_gust"] / r["wind_speed"] for r in $log if r["wind_speed"] >= 1]
+    ${mean_factor}=    Evaluate    sum($factors) / len($factors)
+    Should Be True    1.2 <= ${mean_factor} <= 1.8    msg=Mean gust factor ${mean_factor}
 
 Compass Point Matches The Direction
     ${r}=    Query Weather

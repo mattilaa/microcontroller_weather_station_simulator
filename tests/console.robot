@@ -29,7 +29,7 @@ Weather Report Shows Latest Sample And Interval Means
     Press Key And Expect    w    --- weather, day 1 \\d\\d:\\d\\d:\\d\\d, speed 600x, default ---
     Wait For Output    temperature: +-?\\d+\\.\\d\\d C \\(10-min mean -?\\d+\\.\\d\\d C\\)
     Wait For Output    humidity: +\\d+\\.\\d\\d %RH \\(10-min mean \\d+\\.\\d\\d %RH\\)
-    Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(10-min mean \\d+\\.\\d\\d m/s\\)
+    Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(10-min mean \\d+\\.\\d\\d m/s, gusts \\d+\\.\\d\\d m/s\\)
     Wait For Output    wind direction: +\\d+ deg [NESW]+ \\(10-min mean \\d+ deg [NESW]+\\)
     Wait For Output    rain: +\\d+\\.\\d\\d mm in this interval \\(today \\d+\\.\\d\\d mm\\)
     Wait For Output    pressure: +\\d+\\.\\d hPa \\(10-min mean \\d+\\.\\d hPa\\)

@@ -45,9 +45,10 @@ import time
 
 COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain", "cloud_cover",
            "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
-           "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top"]
-CLOUD_LAYER_COLUMNS = ["lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
-                       "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top"]
+           "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
+           "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top", "stratocumulus_top",
+           "nimbostratus_top", "altocumulus_base", "altocumulus_top"]
+CLOUD_LAYER_COLUMNS = COLUMNS[COLUMNS.index("lcl"):]
 SERVICE_PORT = 5000
 
 # ---- import --------------------------------------------------------------------
@@ -210,11 +211,16 @@ DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
 # Cloud panel: each type at its level (hPa), as in the firmware's weather_model.
 CLOUD_TYPES = [
-    # key, label, colour, base, top: a column name (per record) or a fixed
-    # hPa (fallback for older CSVs); base/top feather as fractions of the
-    # layer's depth: how soft its lower and upper edges are.
+    # Drawn in this order (back to front). key, label, colour, base, top: a
+    # column name (per record) or a fixed hPa (fallback for older CSVs);
+    # then how soft the lower and upper edges are, as fractions of the
+    # layer's depth.
     ("cirrus", "Cirrus", "#7fa8dc", ("cirrus_base", 350), ("cirrus_top", 200), 0.45, 0.45),
     ("altostratus", "Altostratus", "#8a95a8", ("altostratus_base", 700), ("altostratus_top", 450), 0.2, 0.3),
+    ("altocumulus", "Altocumulus", "#a9b8cb", ("altocumulus_base", 600), ("altocumulus_top", 540), 0.3, 0.4),
+    ("nimbostratus", "Nimbostratus", "#536072", ("lcl", 950), ("nimbostratus_top", 550), 0.15, 0.25),
+    ("stratocumulus", "Stratocumulus", "#97a8bc", ("lcl", 950), ("stratocumulus_top", 850), 0.06, 0.4),
+    ("stratus", "Stratus", "#8e97a2", ("lcl", 950), ("stratus_top", 920), 0.1, 0.2),
     ("cumulus", "Cumulus", "#a3b5cc", ("lcl", 900), ("cumulus_top", 700), 0.04, 0.4),
     ("cumulonimbus", "Cumulonimbus", "#3f4f66", ("lcl", 900), (None, 200), 0.04, 0.15),
 ]
@@ -268,7 +274,7 @@ def draw_cloud_panel(ax, readings):
     image = np.zeros((rows, len(layered), 4))
     for key, _, color, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
         rgb = np.array(matplotlib.colors.to_rgb(color))
-        floor = 0.45 if key == "cumulonimbus" else 0.2
+        floor = 0.45 if key in ("cumulonimbus", "nimbostratus") else 0.2
         for column, r in enumerate(layered):
             amount = (r.get(key) or 0.0) / 100.0
             if amount <= 0.005:
@@ -317,8 +323,8 @@ def draw_cloud_panel(ax, readings):
 
     handles = [Patch(color=color, alpha=0.8, label=label) for _, label, color, *_ in CLOUD_TYPES]
     handles.append(Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)"))
-    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=5, frameon=False,
-              fontsize=9.5, handlelength=1.6, columnspacing=1.2)
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=len(handles),
+              frameon=False, fontsize=9, handlelength=1.2, handletextpad=0.4, columnspacing=0.9)
 
 
 def plot(readings, out_path, hours=24, title=None):
@@ -328,7 +334,7 @@ def plot(readings, out_path, hours=24, title=None):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig = plt.figure(figsize=(13, 9.6 if any(r.get("lcl") is not None for r in readings) else 7.2))
+    fig = plt.figure(figsize=(13, 10.4 if any(r.get("lcl") is not None for r in readings) else 7.2))
     draw(fig, readings, hours, title)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
@@ -357,7 +363,7 @@ def draw(fig, readings, hours=24, title=None):
     has_layers = any(r.get("lcl") is not None for r in readings)
     if has_layers:
         ax_t, ax_c, ax_w = fig.subplots(
-            3, 1, sharex=True, gridspec_kw={"height_ratios": [3.0, 1.9, 1.3], "hspace": 0.14})
+            3, 1, sharex=True, gridspec_kw={"height_ratios": [3.0, 2.2, 1.3], "hspace": 0.16})
     else:
         ax_t, ax_w = fig.subplots(2, 1, sharex=True, gridspec_kw={"height_ratios": [3.2, 1.3], "hspace": 0.12})
         ax_c = None

@@ -216,7 +216,9 @@ class NetworkPeer:
         Also checks that sequence numbers are consecutive."""
         columns = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain",
                    "cloud_cover", "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
-                   "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top"]
+                   "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
+                   "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top",
+                   "stratocumulus_top", "nimbostratus_top", "altocumulus_base", "altocumulus_top"]
         readings, next_sequence = [], int(start)
         while True:
             header, *rows = self.send_udp_command(f"log {next_sequence}").split("\n")
@@ -225,9 +227,9 @@ class NetworkPeer:
                 raise AssertionError(f"Header says {fields['count']} rows, got {len(rows)}: {header}")
             for row in rows[: int(fields["count"])]:
                 values = dict(zip(columns, row.split(",")))
-                for key in ("seq", "day", "wind_direction", "cloud_cover", "lcl", "cirrus", "altostratus",
-                            "cumulus", "cumulus_top", "cumulonimbus", "cirrus_base", "cirrus_top",
-                            "altostratus_base", "altostratus_top"):
+                for key in columns:
+                    if key in ("time", "temperature", "humidity", "wind_speed", "rain"):
+                        continue
                     values[key] = int(values[key])
                 for key in ("temperature", "humidity", "wind_speed", "rain"):
                     values[key] = float(values[key])

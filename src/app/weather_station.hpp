@@ -25,7 +25,22 @@ struct cloud_layers
     hectopascal cirrus_top;
     hectopascal altostratus_base;
     hectopascal altostratus_top;
+    percent stratus;       // low sheet: from the LCL up to stratus_top
+    percent stratocumulus; // low lumpy layer: LCL..stratocumulus_top
+    percent nimbostratus;  // rain cloud: LCL..nimbostratus_top
+    percent altocumulus;   // patchy middle: altocumulus_base..top
+    // Derived from the values above (weather_model formulas), not measured:
+    // (default-initialized; derive_cloud_levels() fills them in)
+    hectopascal stratus_top{};
+    hectopascal stratocumulus_top{};
+    hectopascal nimbostratus_top{};
+    hectopascal altocumulus_base{};
+    hectopascal altocumulus_top{};
 };
+
+// Fill in the derived levels of `c` from its LCL, amounts and altostratus
+// levels.
+void derive_cloud_levels(cloud_layers& c);
 
 // One set of sensor readings: a single sample, a 10-minute record, or the
 // mean of the current 10-minute interval.
@@ -83,8 +98,9 @@ public:
     // 256 records, 42.7 simulated hours. (ring_buffer needs a power of two.)
     static constexpr size_t CAPACITY = 256;
 
-    // One record, packed into small integers to fit the RAM budget (36
-    // bytes instead of a full weather_reading's 80). rain_today isn't kept.
+    // One record, packed into small integers to fit the RAM budget (40
+    // bytes instead of a full weather_reading's 116). rain_today and the
+    // derived cloud levels aren't kept.
     struct entry
     {
         uint32_t sequence;
@@ -106,6 +122,10 @@ public:
         uint8_t altostratus;       // %
         uint8_t cumulus;           // %
         uint8_t cumulonimbus;      // %
+        uint8_t stratus;           // %
+        uint8_t stratocumulus;     // %
+        uint8_t nimbostratus;      // %
+        uint8_t altocumulus;       // %
 
         weather_reading reading() const;
     };
@@ -206,6 +226,7 @@ private:
     void sample(uint32_t weight_seconds);
     void close_record();
     void reset_interval();
+    weather_reading mean_of_interval() const; // without derived levels
 
     weather_model _model;
     sensor_model _thermometer{5, 1, -4000, 6000, 0x7e57'0001u}; // +/-0.05 C
@@ -235,6 +256,10 @@ private:
     int64_t _sum_cirrus_top = 0;
     int64_t _sum_altostratus_base = 0;
     int64_t _sum_altostratus_top = 0;
+    int64_t _sum_stratus = 0;
+    int64_t _sum_stratocumulus = 0;
+    int64_t _sum_nimbostratus = 0;
+    int64_t _sum_altocumulus = 0;
     int64_t _sum_direction = 0; // of the unwrapped (continuous) direction
     uint32_t _sum_weight = 0;   // seconds
     int32_t _interval_rain = 0;

@@ -109,6 +109,14 @@ void console_task::print_weather()
          << "                cumulus " << r.clouds.cumulus << " (top "
          << r.clouds.cumulus_top << "), cumulonimbus " << r.clouds.cumulonimbus
          << '\n'
+         << "                stratus " << r.clouds.stratus << " (top "
+         << r.clouds.stratus_top << "), stratocumulus "
+         << r.clouds.stratocumulus << " (top " << r.clouds.stratocumulus_top
+         << ")\n"
+         << "                nimbostratus " << r.clouds.nimbostratus << " (top "
+         << r.clouds.nimbostratus_top << "), altocumulus "
+         << r.clouds.altocumulus << " (" << r.clouds.altocumulus_base << ".."
+         << r.clouds.altocumulus_top << ")\n"
          << "cloud base:     LCL " << r.clouds.lcl << '\n';
 }
 

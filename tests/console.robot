@@ -34,6 +34,8 @@ Weather Report Shows Latest Sample And Interval Means
     Wait For Output    cloud cover: +\\d+ % \\(10-min mean \\d+ %\\)
     Wait For Output    cloud layers: +cirrus \\d+ % \\(\\d+ hPa..\\d+ hPa\\), altostratus \\d+ % \\(\\d+ hPa..\\d+ hPa\\)
     Wait For Output    cumulus \\d+ % \\(top \\d+ hPa\\), cumulonimbus \\d+ %
+    Wait For Output    stratus \\d+ % \\(top \\d+ hPa\\), stratocumulus \\d+ % \\(top \\d+ hPa\\)
+    Wait For Output    nimbostratus \\d+ % \\(top \\d+ hPa\\), altocumulus \\d+ % \\(\\d+ hPa..\\d+ hPa\\)
     Wait For Output    cloud base: +LCL \\d+ hPa
 
 Interval Mean Starts At The First Sample

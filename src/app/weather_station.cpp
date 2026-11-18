@@ -22,7 +22,24 @@ int32_t sensor_model::measure(int32_t true_value)
 // ----------------------------------------------------------------
 
 // The packed record is what keeps the log inside the RAM budget.
-static_assert(sizeof(weather_log::entry) == 36);
+static_assert(sizeof(weather_log::entry) == 40);
+
+void derive_cloud_levels(cloud_layers& c)
+{
+    // Amounts are whole percent here; the model works in per mille.
+    c.stratus_top = {
+        weather_model::stratus_top(c.lcl.value, c.stratus.value * 10)};
+    c.stratocumulus_top = {weather_model::stratocumulus_top(
+        c.lcl.value,
+        c.stratocumulus.value * 10)};
+    c.nimbostratus_top = c.altostratus_top;
+    const weather_model::levels ac = weather_model::altocumulus_levels(
+        c.altostratus_base.value,
+        c.altostratus_top.value,
+        c.altocumulus.value * 10);
+    c.altocumulus_base = {ac.base};
+    c.altocumulus_top = {ac.top};
+}
 
 namespace
 {
@@ -63,12 +80,16 @@ void weather_log::add(const weather_reading& r)
         .altostratus = pack<uint8_t>(r.clouds.altostratus.value, 0, 100),
         .cumulus = pack<uint8_t>(r.clouds.cumulus.value, 0, 100),
         .cumulonimbus = pack<uint8_t>(r.clouds.cumulonimbus.value, 0, 100),
+        .stratus = pack<uint8_t>(r.clouds.stratus.value, 0, 100),
+        .stratocumulus = pack<uint8_t>(r.clouds.stratocumulus.value, 0, 100),
+        .nimbostratus = pack<uint8_t>(r.clouds.nimbostratus.value, 0, 100),
+        .altocumulus = pack<uint8_t>(r.clouds.altocumulus.value, 0, 100),
     });
 }
 
 weather_reading weather_log::entry::reading() const
 {
-    return {
+    weather_reading r{
         .day = day,
         .time = {static_cast<uint32_t>(minute_of_day) * 60},
         .temperature = {temperature},
@@ -90,8 +111,14 @@ weather_reading weather_log::entry::reading() const
                 .cirrus_top = {cirrus_top},
                 .altostratus_base = {altostratus_base},
                 .altostratus_top = {altostratus_top},
+                .stratus = {stratus},
+                .stratocumulus = {stratocumulus},
+                .nimbostratus = {nimbostratus},
+                .altocumulus = {altocumulus},
             },
     };
+    derive_cloud_levels(r.clouds);
+    return r;
 }
 
 size_t weather_log::find(uint32_t sequence) const
@@ -205,8 +232,15 @@ void weather_station::sample(uint32_t weight_seconds)
                 .altostratus_base = {_ceilometer.measure(
                     truth.altostratus_base)},
                 .altostratus_top = {_ceilometer.measure(truth.altostratus_top)},
+                .stratus = {_cloud_sensor.measure(truth.stratus / 10)},
+                .stratocumulus = {_cloud_sensor.measure(
+                    truth.stratocumulus / 10)},
+                .nimbostratus = {_cloud_sensor.measure(
+                    truth.nimbostratus / 10)},
+                .altocumulus = {_cloud_sensor.measure(truth.altocumulus / 10)},
             },
     };
+    derive_cloud_levels(_latest.clouds);
 
     // Unwrap the direction so that averaging works across north: step by
     // the shortest turn (-180..180] from the previous direction.
@@ -245,6 +279,10 @@ void weather_station::sample(uint32_t weight_seconds)
         static_cast<int64_t>(c.altostratus_base.value) * weight;
     _sum_altostratus_top +=
         static_cast<int64_t>(c.altostratus_top.value) * weight;
+    _sum_stratus += static_cast<int64_t>(c.stratus.value) * weight;
+    _sum_stratocumulus += static_cast<int64_t>(c.stratocumulus.value) * weight;
+    _sum_nimbostratus += static_cast<int64_t>(c.nimbostratus.value) * weight;
+    _sum_altocumulus += static_cast<int64_t>(c.altocumulus.value) * weight;
     _sum_direction += static_cast<int64_t>(_unwrapped_direction) * weight;
     _sum_weight += weight;
     _has_reading = true;
@@ -254,6 +292,13 @@ weather_reading weather_station::interval_mean() const
 {
     if(_sum_weight == 0)
         return _latest;
+    weather_reading result = mean_of_interval();
+    derive_cloud_levels(result.clouds);
+    return result;
+}
+
+weather_reading weather_station::mean_of_interval() const
+{
     const auto mean = [this](int64_t sum)
     { return static_cast<int32_t>(sum / _sum_weight); };
     return {
@@ -278,6 +323,10 @@ weather_reading weather_station::interval_mean() const
                 .cirrus_top = {mean(_sum_cirrus_top)},
                 .altostratus_base = {mean(_sum_altostratus_base)},
                 .altostratus_top = {mean(_sum_altostratus_top)},
+                .stratus = {mean(_sum_stratus)},
+                .stratocumulus = {mean(_sum_stratocumulus)},
+                .nimbostratus = {mean(_sum_nimbostratus)},
+                .altocumulus = {mean(_sum_altocumulus)},
             },
     };
 }
@@ -300,6 +349,8 @@ void weather_station::reset_interval()
     _sum_cumulonimbus = _sum_lcl = _sum_cumulus_top = 0;
     _sum_cirrus_base = _sum_cirrus_top = 0;
     _sum_altostratus_base = _sum_altostratus_top = 0;
+    _sum_stratus = _sum_stratocumulus = _sum_nimbostratus = 0;
+    _sum_altocumulus = 0;
     _sum_weight = 0;
     _interval_rain = 0;
 }

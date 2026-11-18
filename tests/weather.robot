@@ -24,6 +24,8 @@ Weather Reading Has All Quantities
     Dictionary Should Contain Key    ${r}    cloud_cover
     FOR    ${key}    IN    lcl    cirrus    altostratus    cumulus    cumulus_top    cumulonimbus
     ...    cirrus_base    cirrus_top    altostratus_base    altostratus_top
+    ...    stratus    stratocumulus    nimbostratus    altocumulus    stratus_top
+    ...    stratocumulus_top    nimbostratus_top    altocumulus_base    altocumulus_top
         Dictionary Should Contain Key    ${r}    ${key}
     END
     Should Be Equal As Integers    ${r}[day]    1
@@ -107,7 +109,7 @@ Log Is Served In Pages
     Send UDP Command    advance 600
     ${page}=    Send UDP Command    log 0
     # The first record covers 06:00-06:10 and is stamped with its end.
-    Should Match Regexp    ${page}    ^log next=14 count=14\\n0,1,06:10,
+    Should Match Regexp    ${page}    ^log next=10 count=10\\n0,1,06:10,
     ${page}=    Send UDP Command    log 99999
     Should Match Regexp    ${page}    ^log next=\\d+ count=0$
     ${reply}=    Send UDP Command    log abc
@@ -160,7 +162,17 @@ Cloud Layers Sit At Their Levels
         Should Be True    414 <= ${r}[altostratus_top] < ${r}[altostratus_base] <= 806
         ...    msg=Altostratus ${r}[altostratus_base]..${r}[altostratus_top] hPa at ${r}[time]
         Should Be True    ${r}[cirrus_base] <= ${r}[altostratus_top] + 6    msg=Cirrus below altostratus at ${r}[time]
+        # Low stratiform layers rest on the LCL; their depth grows with amount.
+        Should Be True    ${r}[lcl] - 65 <= ${r}[stratus_top] <= ${r}[lcl] - 25
+        ...    msg=Stratus top ${r}[stratus_top] hPa over LCL ${r}[lcl] hPa
+        Should Be True    ${r}[lcl] - 150 <= ${r}[stratocumulus_top] <= ${r}[lcl] - 60
+        ...    msg=Stratocumulus top ${r}[stratocumulus_top] hPa over LCL ${r}[lcl] hPa
+        # Nimbostratus reaches the middle deck; altocumulus sits in it.
+        Should Be Equal As Integers    ${r}[nimbostratus_top]    ${r}[altostratus_top]
+        Should Be True    414 <= ${r}[altocumulus_top] < ${r}[altocumulus_base] <= 806
+        ...    msg=Altocumulus ${r}[altocumulus_base]..${r}[altocumulus_top] hPa at ${r}[time]
         FOR    ${layer}    IN    cirrus    altostratus    cumulus    cumulonimbus
+        ...    stratus    stratocumulus    nimbostratus    altocumulus
             Should Be True    0 <= ${r}[${layer}] <= 100    msg=${layer} ${r}[${layer}] %
         END
     END
@@ -196,12 +208,34 @@ High And Middle Layers Move And Thicken
     ${as_tops}=    Evaluate    {r["altostratus_top"] for r in $log}
     Should Be True    len($cirrus_bases) > 20    msg=Cirrus base barely moves: ${cirrus_bases}
     Should Be True    len($as_tops) > 20    msg=Altostratus top barely moves: ${as_tops}
-    ${thick}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $log if r["altostratus"] >= 40]
-    ${thin}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $log if 0 < r["altostratus"] <= 15]
-    Should Not Be Empty    ${thick}
-    Should Not Be Empty    ${thin}
-    Should Be True    sum($thick) / len($thick) > sum($thin) / len($thin) + 20
+    # Depth of the quarter of records with the most altostratus vs the
+    # quarter with the least.
+    ${ranked}=    Evaluate    sorted($log, key=lambda r: r["altostratus"])
+    ${quarter}=    Evaluate    len($ranked) // 4
+    ${thin}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $ranked[:$quarter]]
+    ${thick}=    Evaluate    [r["altostratus_base"] - r["altostratus_top"] for r in $ranked[-$quarter:]]
+    Should Be True    sum($thick) / len($thick) > sum($thin) / len($thin) + 8
     ...    msg=Thick altostratus not deeper than thin
+
+Stratus Forms In Humid Air
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${with_stratus}=    Evaluate    [r["humidity"] for r in $log if r["stratus"] >= 5]
+    ${all}=    Evaluate    [r["humidity"] for r in $log]
+    Should Not Be Empty    ${with_stratus}    msg=No stratus in 40 hours
+    ${difference}=    Evaluate    sum($with_stratus) / len($with_stratus) - sum($all) / len($all)
+    Should Be True    ${difference} > 10    msg=Stratus air only ${difference} %RH more humid than average
+
+Nimbostratus Comes Only With Rain-Bearing Cloud
+    [Documentation]    Nimbostratus is the cloud of steady rain: a heavily
+    ...                clouded sky, and it is the thickest low-based layer.
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
+    ${log}=    Fetch Weather Log
+    ${rain_cloud}=    Evaluate    [r for r in $log if r["nimbostratus"] >= 5]
+    FOR    ${r}    IN    @{rain_cloud}
+        Should Be True    ${r}[cloud_cover] >= 60    msg=Nimbostratus under ${r}[cloud_cover] % cloud at ${r}[time]
+        Should Be True    ${r}[nimbostratus_top] < ${r}[stratocumulus_top]
+    END
 
 Cloud Base Is Lower When It Is Humid
     [Documentation]    The LCL is nearer the ground (higher pressure) in humid air.

@@ -67,6 +67,26 @@ int32_t weather_model::lcl_hpa(int32_t humidity)
     return util::standard_pressure_hpa(metres);
 }
 
+int32_t weather_model::stratus_top(int32_t lcl, int32_t amount)
+{
+    return lcl - 25 - 40 * util::clamp(amount, 0, 1000) / 1000; // 25..65 hPa
+}
+
+int32_t weather_model::stratocumulus_top(int32_t lcl, int32_t amount)
+{
+    return lcl - 60 - 90 * util::clamp(amount, 0, 1000) / 1000; // 60..150 hPa
+}
+
+weather_model::levels weather_model::altocumulus_levels(
+    int32_t altostratus_base,
+    int32_t altostratus_top,
+    int32_t amount)
+{
+    const int32_t centre = (altostratus_base + altostratus_top) / 2 - 15;
+    const int32_t half = 15 + 50 * util::clamp(amount, 0, 1000) / 1000;
+    return {.base = centre + half, .top = centre - half};
+}
+
 int32_t weather_model::daily_mean_wind(uint32_t minute_of_day)
 {
     constexpr int32_t MEAN = 300;      // 3.00 m/s
@@ -245,29 +265,48 @@ void weather_model::update_conditions()
                              _moisture / FINE + (cloud - 350) * 2 +
                              _wetness / FINE * 5 / 2;
 
-    // Cloud layers. The cloudiness that makes rain is low and middle cloud;
-    // daytime convection decides how much of it is heaped cumulus rather
-    // than a stratiform sheet. Heavy rain in strong convection is
-    // cumulonimbus: it grows from the cloud base right up to the tropopause.
+    // Cloud layers. The cloudiness that makes rain is low and middle cloud,
+    // split into types (the total, and so the rain, doesn't change):
+    // - heavy rain in strong convection is cumulonimbus, from the cloud
+    //   base right up to the tropopause
+    // - steady rain without convection falls from nimbostratus
+    // - of the rest, daytime convection heaps a share into cumulus
+    // - the remaining stratiform cloud is half middle cloud and half low
+    //   cloud. Low: stratus in very humid air, stratocumulus otherwise.
+    //   Middle: altostratus sheet, with a share of lumpy altocumulus that
+    //   grows in the daytime
+    const int32_t relative_humidity = util::clamp(humidity, 1500, 10000);
     const int32_t convection = daily_convection(minute);
     int32_t cumulonimbus = 0;
     if(cloud > 700 && convection > 300)
         cumulonimbus =
             util::clamp((cloud - 700) * 3 * convection / 1000, 0, cloud);
     const int32_t layered = cloud - cumulonimbus;
-    const int32_t cumulus = layered * convection / 1000;
-    const int32_t altostratus = layered - cumulus;
+    const int32_t nimbostratus =
+        rain_rate > 0 ? util::clamp((cloud - 600) * 3, 0, layered) *
+                            (1000 - convection) / 1000
+                      : 0;
+    const int32_t rest = layered - nimbostratus;
+    const int32_t cumulus = rest * convection / 1000;
+    const int32_t stratiform = rest - cumulus;
+    const int32_t low = stratiform / 2;
+    // 0 at 75 %RH, 1000 when saturated: how much of the low cloud is stratus.
+    const int32_t saturation =
+        util::clamp((relative_humidity - 7500) * 1000 / 2500, 0, 1000);
+    const int32_t stratus = low * saturation / 1000;
+    const int32_t stratocumulus = low - stratus;
+    const int32_t middle = stratiform - low;
+    const int32_t altocumulus = middle * (300 + 400 * convection / 1000) / 1000;
+    const int32_t altostratus = middle - altocumulus;
     const int32_t cirrus = _cirrus / FINE;
 
-    const int32_t relative_humidity = util::clamp(humidity, 1500, 10000);
     const int32_t lcl = lcl_hpa(relative_humidity);
     // Cumulus towers deepen with convection: 80..350 hPa above the base.
     const int32_t cumulus_top =
         util::clamp(lcl - 80 - 270 * convection / 1000, 450, lcl);
 
     // High and middle layers: centred on their drifting levels, thicker the
-    // more cloud there is. Steady rain lowers the altostratus base toward
-    // the ground (it thickens into rain-bearing nimbostratus).
+    // more cloud there is.
     const int32_t cirrus_half = 15 + 60 * cirrus / 1000;
     const int32_t cirrus_level = _cirrus_level / FINE;
     const int32_t cirrus_base =
@@ -277,7 +316,7 @@ void weather_model::update_conditions()
     const int32_t altostratus_half = 20 + 110 * altostratus / 1000;
     const int32_t altostratus_level = _altostratus_level / FINE;
     const int32_t altostratus_base = util::clamp(
-        altostratus_level + altostratus_half + rain_rate / 3,
+        altostratus_level + altostratus_half,
         altostratus_level,
         util::clamp(lcl - 20, altostratus_level, ALTOSTRATUS_LOWEST));
     const int32_t altostratus_top = util::clamp(
@@ -306,6 +345,19 @@ void weather_model::update_conditions()
         .cirrus_top = cirrus_top,
         .altostratus_base = altostratus_base,
         .altostratus_top = altostratus_top,
+        .stratus = stratus,
+        .stratocumulus = stratocumulus,
+        .nimbostratus = nimbostratus,
+        .altocumulus = altocumulus,
+        .stratus_top = stratus_top(lcl, stratus),
+        .stratocumulus_top = stratocumulus_top(lcl, stratocumulus),
+        .nimbostratus_top = altostratus_top,
+        .altocumulus_base =
+            altocumulus_levels(altostratus_base, altostratus_top, altocumulus)
+                .base,
+        .altocumulus_top =
+            altocumulus_levels(altostratus_base, altostratus_top, altocumulus)
+                .top,
     };
 }
 

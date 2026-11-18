@@ -28,6 +28,17 @@ struct weather_conditions
     int32_t cirrus_top;   // and get thicker the more of them there is
     int32_t altostratus_base;
     int32_t altostratus_top;
+    // Low stratiform layers, each 0..1000, all based at the LCL:
+    int32_t stratus;       // shallow grey sheet in very humid air
+    int32_t stratocumulus; // lumpy low layer
+    int32_t nimbostratus;  // thick rain cloud of steady (non-convective)
+                           // rain, from the LCL up into the middle deck
+    int32_t altocumulus;   // patchy, lumpy middle cloud near altostratus
+    int32_t stratus_top;   // hPa, see stratus_top()
+    int32_t stratocumulus_top;
+    int32_t nimbostratus_top;
+    int32_t altocumulus_base; // hPa, see altocumulus_levels()
+    int32_t altocumulus_top;
 };
 
 // Simulated weather. Deterministic daily patterns plus slowly varying random
@@ -105,6 +116,27 @@ public:
     // Lifting condensation level from relative humidity (0.01 %RH): about
     // 125 m per degree of dew-point spread, the spread being ~(100 - RH) / 5.
     static int32_t lcl_hpa(int32_t humidity);
+
+    // Tops of the low stratiform layers from their base (the LCL, hPa) and
+    // amount (0..1000): thicker the more cloud. Functions of stored values,
+    // so the log needn't keep the tops. Nimbostratus reaches the middle
+    // deck: its top is the altostratus top.
+    static int32_t stratus_top(int32_t lcl, int32_t amount);
+    static int32_t stratocumulus_top(int32_t lcl, int32_t amount);
+
+    // Altocumulus sits a little above the middle of the altostratus layer
+    // (same drifting level), thicker with more cloud. Derived from the
+    // altostratus base/top, so the log needn't keep its levels either.
+    struct levels
+    {
+        int32_t base;
+        int32_t top;
+    };
+
+    static levels altocumulus_levels(
+        int32_t altostratus_base,
+        int32_t altostratus_top,
+        int32_t amount);
 
 private:
     void step(uint32_t dt_seconds);

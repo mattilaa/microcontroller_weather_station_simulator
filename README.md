@@ -117,14 +117,14 @@ The firmware is laid out like a microcontroller with **32 KiB of RAM**:
 
 ```
 Memory region         Used Size  Region Size  %age Used
-           FLASH:       31200 B         1 MB      2.98%
-             RAM:       26688 B        32 KB     81.45%
+           FLASH:       33824 B         1 MB      3.23%
+             RAM:       27824 B        32 KB     84.91%
 ```
 
 | RAM user | Bytes |
 |----------|-------|
 | Ethernet: 4 receive + 2 transmit buffers of 1526 B, plus rings | 9 400 |
-| Reading log: 256 records, packed into 36 B each | 9 230 |
+| Reading log: 256 records, packed into 40 B each | 10 260 |
 | IP stack frame copies (receive + transmit), in `.data` | 3 090 |
 | Weather model, sensors, tasks, console | ~700 |
 | Stack | 4 096 |
@@ -142,7 +142,13 @@ it peaks at about 870 of 4096 bytes. A test checks it stays under half.
 | Wind speed | pulled toward a daily mean (1–5 m/s, windiest in the afternoon) with random variation, plus occasional gusts that decay |
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
 | Cloud cover | low and middle cloud follows a slowly wandering trend; showers build and clear over hours. The sky imager reports total cover in whole percent, counting thin cirrus half |
-| Cloud layers | each type at its own level: **cirrus** high up (centred near 270 hPa / 10 km, drifting up and down, thicker when there's more of it); **altostratus**, a middle sheet (centred near 580 hPa / 4.5 km, also drifting and thickening, and its base sinks in steady rain); **cumulus** from the cloud base upward, growing with afternoon convection and gone at night; **cumulonimbus**, in heavy convective rain, from the cloud base right up to the tropopause (200 hPa) |
+| Cloud layers | the cloudiness is split into ten types, each at its own level. Splitting it leaves the total, and so the rain, unchanged |
+| High | **cirrus**, wispy ice cloud drifting around 270 hPa (10 km) |
+| Middle | **altostratus**, a sheet drifting around 580 hPa (4.5 km), and **altocumulus**, patchy and lumpy just above its middle, more of it in the daytime |
+| Low | **stratus**, a shallow grey sheet just above the cloud base in very humid air (down to fog); **stratocumulus**, a lumpy low layer in less humid air |
+| Rain cloud | **nimbostratus** in steady, non-convective rain, from the cloud base up into the middle deck |
+| Convective | **cumulus**, growing from the cloud base with afternoon convection and gone at night; **cumulonimbus**, in heavy convective rain, from the cloud base right up to the tropopause (200 hPa) |
+| Thickness | each layer is thicker the more of it there is |
 | Cloud base (LCL) | the lifting condensation level, from humidity: about 125 m per °C of dew-point spread, converted to hPa with a standard-atmosphere table. It's low in humid air and rain, and higher on dry afternoons |
 | Rain | falls when cloudiness passes a threshold, harder the cloudier it gets (up to ~5 mm/h); clouds flatten the daily temperature swing, rain cools the air, and humidity builds up during rain and dries out over the following hours |
 
@@ -160,9 +166,9 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"speed":1}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"speed":1}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
-| `log [sequence]` | one page (up to 14 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
+| `log [sequence]` | one page (up to 10 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
 | `speed [N]` | shows or sets the simulation speed (1…72000) |
 | `ping` | `pong` |
@@ -188,7 +194,9 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   record is one column, with no smoothing between records. Every cloud type spans its own
   base and top for that record, more opaque the more cloud there is:
   - cirrus is wispy and densest in its middle, drifting around 10 km
-  - altostratus is a sheet that undulates, and lowers in steady rain
+  - altostratus is an undulating sheet, with patchy altocumulus in it
+  - stratus and stratocumulus are low layers resting on the cloud base
+  - nimbostratus is a dark rain cloud from the cloud base into the middle deck
   - cumulus has a flat base on the LCL and a soft, billowing top
   - cumulonimbus is a dark tower from the cloud base to the tropopause
 
@@ -217,7 +225,7 @@ python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 -
 ```
 
 The CSV columns are
-`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top`
+`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top`
 (pressures in hPa, cloud amounts in %). Older CSVs without the newer columns at the end
 still plot: without layer levels the cirrus and altostratus fall back to fixed levels, and
 without any cloud columns there's no cloud panel.
@@ -289,7 +297,7 @@ UART and over Ethernet:
 | `boot.robot` | banner, EL1, network bring-up, running without a NIC, rejecting a legacy virtio device |
 | `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
-| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, cloud layers at their levels, afternoon cumulus, cumulonimbus only in rain-bearing cloud, high and middle layers drifting and thickening, lower cloud base in humid air, daily rain totals, the log and fast-forward |
+| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, cloud layers at their levels, afternoon cumulus, cumulonimbus only in rain-bearing cloud, high and middle layers drifting and thickening, stratus in humid air, nimbostratus only with rain-bearing cloud, lower cloud base in humid air, daily rain totals, the log and fast-forward |
 | `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |

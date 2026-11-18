@@ -15,6 +15,7 @@ struct weather_conditions
     int32_t wind_speed;     // 0.01 m/s
     int32_t wind_direction; // degrees, 0..359 (where the wind comes from)
     int32_t rain_rate;      // 0.01 mm/h
+    int32_t cloud_cover;    // 0.1 % of the sky (0..1000)
 };
 
 // Simulated weather. Deterministic daily patterns plus slowly varying random

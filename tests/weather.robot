@@ -21,6 +21,7 @@ Weather Reading Has All Quantities
     Dictionary Should Contain Key    ${r}    wind_compass
     Dictionary Should Contain Key    ${r}    rain
     Dictionary Should Contain Key    ${r}    rain_today
+    Dictionary Should Contain Key    ${r}    cloud_cover
     Should Be Equal As Integers    ${r}[day]    1
     Should Match Regexp    ${r}[time]    ^\\d\\d:\\d\\d:\\d\\d$
     Should Be Equal As Integers    ${r}[speed]    600
@@ -36,6 +37,7 @@ Readings Stay In Physical Ranges
         Should Be True    0 <= ${r}[4] <= 40    msg=Wind speed ${r}[4] m/s
         Should Be True    0 <= ${r}[5] <= 359    msg=Wind direction ${r}[5] deg
         Should Be True    0 <= ${r}[7] <= 2    msg=Rain ${r}[7] mm in 10 minutes
+        Should Be True    0 <= ${r}[8] <= 100    msg=Cloud cover ${r}[8] %
     END
 
 Temperature Follows The Daily Cycle
@@ -128,6 +130,18 @@ It Is More Humid When It Rains
     Should Not Be Empty    ${wet}
     ${difference}=    Evaluate    sum($wet) / len($wet) - sum($dry) / len($dry)
     Should Be True    ${difference} > 10    msg=Only ${difference} %RH more humid in rain
+
+It Is Cloudier When It Rains
+    [Documentation]    Rain falls only from a well-clouded sky.
+    Send UDP Command    advance 4320
+    ${log}=    Fetch Weather Log
+    ${wet}=    Evaluate    [r["cloud_cover"] for r in $log if r["rain"] > 0]
+    ${dry}=    Evaluate    [r["cloud_cover"] for r in $log if r["rain"] == 0]
+    Should Not Be Empty    ${wet}
+    ${clouds}=    Evaluate    [r["cloud_cover"] for r in $log]
+    Should Be True    0 <= min($clouds) and max($clouds) <= 100
+    ${difference}=    Evaluate    sum($wet) / len($wet) - sum($dry) / len($dry)
+    Should Be True    ${difference} > 20    msg=Only ${difference} % more cloud cover in rain
 
 Daily Rain Total Counts From Midnight
     Send UDP Command    advance 4320

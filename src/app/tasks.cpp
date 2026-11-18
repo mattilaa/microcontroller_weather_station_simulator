@@ -95,7 +95,9 @@ void console_task::print_weather()
          << "wind direction: " << r.wind_direction << " (10-min mean "
          << mean.wind_direction << ")\n"
          << "rain:           " << mean.rain << " in this interval (today "
-         << r.rain_today << ")\n";
+         << r.rain_today << ")\n"
+         << "cloud cover:    " << r.cloud_cover << " (10-min mean "
+         << mean.cloud_cover << ")\n";
 }
 
 void console_task::print_history()

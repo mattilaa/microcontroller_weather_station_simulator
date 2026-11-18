@@ -42,7 +42,7 @@ import subprocess
 import sys
 import time
 
-COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain"]
+COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain", "cloud_cover"]
 SERVICE_PORT = 5000
 
 # ---- import --------------------------------------------------------------------
@@ -142,6 +142,8 @@ def load(path):
                     "wind_speed": float(row["wind_speed"]),
                     "wind_direction": float(row["wind_direction"]),
                     "rain": float(row["rain"]),
+                    # Older CSVs (before the cloud cover sensor) lack the column.
+                    "cloud_cover": float(row["cloud_cover"]) if row.get("cloud_cover") else None,
                 }
             )
     readings.sort(key=lambda r: r["when"])
@@ -193,6 +195,8 @@ def hourly(readings):
 TEMPERATURE_COLOR = "#9b1c1c"
 DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
+CLOUD_COLOR = "#7d8fa6"  # muted blue-grey: dims the background, not the data
+CLOUD_MAX_ALPHA = 0.35   # at 100 % cloud cover
 WIND_COLOR = "#2f4f6f"
 BAND_COLOR = "#f4f4f4"
 GRID_COLOR = "#dddddd"
@@ -274,13 +278,33 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.set_zorder(ax_r.get_zorder() + 1)
     ax_t.patch.set_visible(False)
 
+    # Cloud cover as a dimmed background behind everything in the top panel:
+    # one band per 10-minute record, darker the cloudier. It goes on the back
+    # (rain) axes below the hour bands and bars (zorder), so it never hides
+    # a measurement.
+    has_clouds = any(r["cloud_cover"] is not None for r in readings)
+    for r in readings:
+        if r["cloud_cover"] is None or r["cloud_cover"] <= 0:
+            continue
+        ax_r.axvspan(
+            r["when"] - datetime.timedelta(minutes=RECORD_MINUTES),
+            r["when"],
+            color=CLOUD_COLOR,
+            # Grows faster than linearly: clear spells stay light, overcast stands out.
+            alpha=CLOUD_MAX_ALPHA * (min(r["cloud_cover"], 100.0) / 100.0) ** 1.6,
+            lw=0,
+            zorder=0.5,
+        )
+
     # Alternating hour bands and a dashed line at each midnight. In the top
     # panel they go on the back (rain) axes, or they would cover the bars.
     hour = x_begin
     while hour < x_end:
         if hour.hour % 2 == 1:
             for ax in (ax_r, ax_w):
-                ax.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
+                # Faint enough to show the cloud shading through it.
+                ax.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, alpha=0.6,
+                           zorder=0, lw=0)
         if hour.hour == 0 and hour > x_begin:
             for ax in (ax_t, ax_w):
                 ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=1)
@@ -292,7 +316,11 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.text(0, 1.02, "°C", transform=ax_t.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
     ax_r.text(1, 1.02, "mm", transform=ax_r.transAxes, ha="left", va="bottom", fontsize=12, color="#444444")
     handles = ax_t.get_legend_handles_labels()[0] + ax_r.get_legend_handles_labels()[0]
-    ax_t.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=3, frameon=False, fontsize=10)
+    if has_clouds:
+        from matplotlib.patches import Patch
+
+        handles.append(Patch(color=CLOUD_COLOR, alpha=CLOUD_MAX_ALPHA * 0.8, label="Cloud cover (shading)"))
+    ax_t.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=4, frameon=False, fontsize=10)
     if title:
         ax_t.set_title(title, loc="right", fontsize=11, color="#444444", pad=22)
 

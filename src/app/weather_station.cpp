@@ -9,7 +9,7 @@ util::text_stream& operator<<(util::text_stream& out, const weather_reading& r)
 {
     return out << r.time << " temp " << r.temperature << " | hum " << r.humidity
                << " | wind " << r.wind_speed << " from " << r.wind_direction
-               << " | rain " << r.rain;
+               << " | rain " << r.rain << " | cloud " << r.cloud_cover;
 }
 
 int32_t sensor_model::measure(int32_t true_value)
@@ -76,6 +76,7 @@ void weather_station::set_time_of_day(uint32_t minute)
     _model.set_time_of_day(minute);
     // Start a fresh interval: the old one doesn't fit the new clock.
     _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
+    _sum_cloud_cover = 0;
     _sum_weight = 0;
     _interval_rain = 0;
     _update_rain = 0;
@@ -129,6 +130,7 @@ void weather_station::sample(uint32_t weight_seconds)
         .wind_direction = {direction},
         .rain = {_update_rain},
         .rain_today = {_rain_today},
+        .cloud_cover = {_sky_imager.measure(truth.cloud_cover / 10)},
     };
 
     // Unwrap the direction so that averaging works across north: step by
@@ -153,6 +155,8 @@ void weather_station::sample(uint32_t weight_seconds)
         static_cast<int64_t>(_latest.temperature.value) * weight;
     _sum_humidity += static_cast<int64_t>(_latest.humidity.value) * weight;
     _sum_wind_speed += static_cast<int64_t>(_latest.wind_speed.value) * weight;
+    _sum_cloud_cover +=
+        static_cast<int64_t>(_latest.cloud_cover.value) * weight;
     _sum_direction += static_cast<int64_t>(_unwrapped_direction) * weight;
     _sum_weight += weight;
     _has_reading = true;
@@ -173,6 +177,7 @@ weather_reading weather_station::interval_mean() const
         .wind_direction = {util::wrap(mean(_sum_direction), 360)},
         .rain = {_interval_rain},
         .rain_today = {_rain_today},
+        .cloud_cover = {mean(_sum_cloud_cover)},
     };
 }
 
@@ -185,6 +190,7 @@ void weather_station::close_record()
         _rain_today = 0;
 
     _sum_temperature = _sum_humidity = _sum_wind_speed = _sum_direction = 0;
+    _sum_cloud_cover = 0;
     _sum_weight = 0;
     _interval_rain = 0;
 }

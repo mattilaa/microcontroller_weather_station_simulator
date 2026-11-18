@@ -206,6 +206,7 @@ void weather_model::update_conditions()
         .wind_direction =
             util::wrap(_prevailing / FINE / 10 + _vane_swing, 360),
         .rain_rate = rain_rate,
+        .cloud_cover = cloud,
     };
 }
 

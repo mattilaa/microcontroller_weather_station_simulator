@@ -49,6 +49,11 @@ util::text_stream& operator<<(util::text_stream& out, centi_mm r)
     return out << util::fixed(r.value, 2) << " mm";
 }
 
+util::text_stream& operator<<(util::text_stream& out, percent p)
+{
+    return out << p.value << " %";
+}
+
 util::text_stream& operator<<(util::text_stream& out, compass_degrees d)
 {
     return out << d.value << " deg " << compass_point(d.value);

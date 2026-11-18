@@ -214,7 +214,8 @@ class NetworkPeer:
         """Page through the firmware's reading log ("log <sequence>") and
         return the readings as a list of dictionaries with numeric values.
         Also checks that sequence numbers are consecutive."""
-        columns = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain"]
+        columns = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_direction", "rain",
+                   "cloud_cover"]
         readings, next_sequence = [], int(start)
         while True:
             header, *rows = self.send_udp_command(f"log {next_sequence}").split("\n")
@@ -223,7 +224,7 @@ class NetworkPeer:
                 raise AssertionError(f"Header says {fields['count']} rows, got {len(rows)}: {header}")
             for row in rows[: int(fields["count"])]:
                 values = dict(zip(columns, row.split(",")))
-                for key in ("seq", "day", "wind_direction"):
+                for key in ("seq", "day", "wind_direction", "cloud_cover"):
                     values[key] = int(values[key])
                 for key in ("temperature", "humidity", "wind_speed", "rain"):
                     values[key] = float(values[key])

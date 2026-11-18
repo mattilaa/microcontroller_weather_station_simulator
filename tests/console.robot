@@ -31,6 +31,7 @@ Weather Report Shows Latest Sample And Interval Means
     Wait For Output    wind speed: +\\d+\\.\\d\\d m/s \\(10-min mean \\d+\\.\\d\\d m/s\\)
     Wait For Output    wind direction: +\\d+ deg [NESW]+ \\(10-min mean \\d+ deg [NESW]+\\)
     Wait For Output    rain: +\\d+\\.\\d\\d mm in this interval \\(today \\d+\\.\\d\\d mm\\)
+    Wait For Output    cloud cover: +\\d+ % \\(10-min mean \\d+ %\\)
 
 Interval Mean Starts At The First Sample
     [Documentation]    Right after boot the interval holds one sample, so its mean equals it.

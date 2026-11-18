@@ -17,9 +17,9 @@ ${BOOT_TIMEOUT}     10s
 # so tests see hours of weather quickly. ${NONE} = no switch (real time).
 ${SPEED}            600
 # One line of sensor readings (groups: hours, minutes, temperature, humidity,
-# wind speed, direction, compass point, rain), e.g.
-# "06:10:00 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW | rain 0.40 mm"
-${READING}          (\\d\\d):(\\d\\d):\\d\\d temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+) \\| rain (\\d+\\.\\d\\d) mm
+# wind speed, direction, compass point, rain, cloud cover), e.g.
+# "06:10:00 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW | rain 0.40 mm | cloud 63 %"
+${READING}          (\\d\\d):(\\d\\d):\\d\\d temp (-?\\d+\\.\\d\\d) C \\| hum (\\d+\\.\\d\\d) %RH \\| wind (\\d+\\.\\d\\d) m/s from (\\d+) deg ([NESW]+) \\| rain (\\d+\\.\\d\\d) mm \\| cloud (\\d+) %
 
 
 *** Keywords ***

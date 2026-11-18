@@ -24,10 +24,11 @@ struct weather_reading
     centi_mm rain;       // samples: since the previous update; records: in
                          // the 10-minute interval
     centi_mm rain_today; // since midnight
+    percent cloud_cover; // of the sky
 };
 
 // "06:10:05 temp 12.34 C | hum 71.20 %RH | wind 3.42 m/s from 225 deg SW |
-//  rain 0.40 mm"
+//  rain 0.40 mm | cloud 63 %"
 util::text_stream& operator<<(util::text_stream& out, const weather_reading& r);
 
 // Measurement characteristics of a physical sensor: it sees the true value
@@ -97,8 +98,9 @@ private:
     uint32_t _next_sequence = 0;
 };
 
-// The weather station: a thermometer, hygrometer, anemometer, wind vane and
-// tipping-bucket rain gauge measuring the simulated weather.
+// The weather station: a thermometer, hygrometer, anemometer, wind vane,
+// tipping-bucket rain gauge and cloud cover sensor (sky imager / ceilometer)
+// measuring the simulated weather.
 //
 // Like a real automatic weather station it samples its sensors often (once
 // per update, i.e. every real second, and at least once per simulated
@@ -168,6 +170,7 @@ private:
     sensor_model _hygrometer{30, 10, 0, 10000, 0x7e57'0002u};   // +/-0.3 %
     sensor_model _anemometer{5, 10, 0, 6000, 0x7e57'0003u};     // 0.1 m/s
     sensor_model _wind_vane{2, 1, -720, 1080, 0x7e57'0004u};    // 1 deg
+    sensor_model _sky_imager{2, 1, 0, 100, 0x7e57'0005u};       // 1 %
 
     uint32_t _speed = DEFAULT_SPEED;
     uint64_t _last_update_ms = 0;
@@ -177,6 +180,7 @@ private:
     int64_t _sum_temperature = 0;
     int64_t _sum_humidity = 0;
     int64_t _sum_wind_speed = 0;
+    int64_t _sum_cloud_cover = 0;
     int64_t _sum_direction = 0; // of the unwrapped (continuous) direction
     uint32_t _sum_weight = 0;   // seconds
     int32_t _interval_rain = 0;

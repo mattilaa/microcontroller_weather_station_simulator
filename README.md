@@ -7,7 +7,7 @@ main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C
 and built with CMake.
 
 It's a small simulated **weather station**: temperature, humidity, wind speed, wind
-direction and rain sensors read a simulated weather model. Readings are printed on the
+direction, rain and cloud cover sensors read a simulated weather model. Readings are printed on the
 UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
 the Finnish Meteorological Institute's forecast chart:
@@ -105,7 +105,7 @@ behaves the same at 1× and at 3600×. Every sample is still taken from the mode
 | Humidity | falls about 3 %RH per °C of warming (relative humidity drops as air warms), plus its own slow moisture drift |
 | Wind speed | pulled toward a daily mean (1–5 m/s, windiest in the afternoon) with random variation, plus occasional gusts that decay |
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
-| Cloudiness | follows a slowly wandering trend; showers build and clear over hours |
+| Cloud cover | follows a slowly wandering trend (35 % on average); showers build and clear over hours. A cloud cover sensor (sky imager / ceilometer) reports it in whole percent |
 | Rain | falls when cloudiness passes a threshold, harder the cloudier it gets (up to ~5 mm/h); clouds flatten the daily temperature swing, rain cools the air, and humidity builds up during rain and dries out over the following hours |
 
 The slow parts are mean-reverting random processes (Ornstein–Uhlenbeck style). Each
@@ -122,7 +122,7 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"speed":1}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"speed":1}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
 | `log [sequence]` | one page (up to 20 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
@@ -144,7 +144,9 @@ The firmware keeps the last 512 records (3.5 simulated days) in its log.
 matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlaitos.fi/saa/helsinki?forecast=daily):
 
 - **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
-  humidity), and hourly precipitation bars on the right-hand mm axis.
+  humidity), and hourly precipitation bars on the right-hand mm axis. Cloud cover dims the
+  background behind them: one blue-grey band per 10-minute record, darker the cloudier,
+  drawn underneath everything so it never hides a measurement.
 - **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
   the hourly mean speed under each arrow.
 - **Time axis:** alternating hour bands and a dashed line at each midnight.
@@ -166,6 +168,10 @@ python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
 # Instant: fast-forward without waiting at all.
 python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 --hours 48
 ```
+
+The CSV columns are `seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover`.
+CSVs from before the cloud cover sensor (without the last column) still plot, just without
+shading.
 
 `fetch` and `record` append only records that aren't in the CSV yet, so they can be run
 repeatedly while the firmware keeps measuring. `record` with its own QEMU starts a fresh
@@ -234,7 +240,7 @@ UART and over Ethernet:
 | `boot.robot` | banner, EL1, network bring-up, running without a NIC, rejecting a legacy virtio device |
 | `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
-| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, daily rain totals, the log and fast-forward |
+| `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, daily rain totals, the log and fast-forward |
 | `realtime.robot` | real time by default, the QEMU speed switch, changing speed over UDP and from the console, records as means of their samples |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
@@ -297,7 +303,7 @@ src/main.cpp                        static object graph + main loop
 src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
 src/app/tasks.*                     weather/network/console tasks
 src/app/weather_model.*             simulated weather (daily cycles + random processes)
-src/app/weather_station.*           sensors (noise, resolution, rain gauge), samples, 10-minute records, log
+src/app/weather_station.*           sensors (noise, resolution, rain gauge, cloud cover), samples, 10-minute records, log
 src/app/weather_service.*           UDP command protocol (port 5000)
 src/app/units.*                     fixed-point units and their formatting
 src/app/console.*                   UART text output

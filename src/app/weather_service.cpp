@@ -79,10 +79,12 @@ void write_json(util::text_stream& out, const weather_reading& r)
         << ",\"wind_direction\":" << r.wind_direction.value
         << ",\"wind_compass\":\"" << compass_point(r.wind_direction.value)
         << "\",\"rain\":" << util::fixed(r.rain.value, 2)
-        << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2);
+        << ",\"rain_today\":" << util::fixed(r.rain_today.value, 2)
+        << ",\"cloud_cover\":" << r.cloud_cover.value;
 }
 
-// One log row: seq,day,time,temperature,humidity,wind_speed,wind_direction,rain
+// One log row:
+// seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover
 void write_csv_row(util::text_stream& out, const weather_log::entry& e)
 {
     const weather_reading& r = e.reading;
@@ -91,7 +93,8 @@ void write_csv_row(util::text_stream& out, const weather_log::entry& e)
         << util::fixed(r.temperature.value, 2) << ','
         << util::fixed(r.humidity.value, 2) << ','
         << util::fixed(r.wind_speed.value, 2) << ',' << r.wind_direction.value
-        << ',' << util::fixed(r.rain.value, 2) << '\n';
+        << ',' << util::fixed(r.rain.value, 2) << ',' << r.cloud_cover.value
+        << '\n';
 }
 
 // A page of the log, starting at sequence number `from`:

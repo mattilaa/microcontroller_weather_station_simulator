@@ -12,7 +12,7 @@ second, 3600 = an hour per second, 72000 = twenty hours per second).
     # updating the chart (Ctrl-C stops). 48 simulated hours at 3600x take
     # 48 seconds; at 1x (real time) they take 48 hours.
     python tools/weather_tool.py record --speed 3600 --hours 48
-    python tools/weather_tool.py record --speed 72000 --hours 72 --interval 0.5   # ~4 s
+    python tools/weather_tool.py record --speed 72000 --hours 72   # ~5 s
     python tools/weather_tool.py record --speed 600 --live      # live window
 
     # Against an already running firmware (cmake --build build --target run):
@@ -204,8 +204,10 @@ TEMPERATURE_COLOR = "#9b1c1c"
 DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
 CLOUD_COLOR = "#7d8fa6"  # muted blue-grey: dims the background, not the data
-CLOUD_MAX_ALPHA = 0.5    # at 100 % cloud cover
-CLOUD_CURVE = 1.3        # > 1: clear spells stay lighter than overcast
+CLOUD_MAX_ALPHA = 0.55   # at full overcast
+CLOUD_CLEAR = 15.0       # % cover with no shading at all (fair weather)
+CLOUD_FULL = 85.0        # % cover with the darkest shading
+CLOUD_SMOOTH_MINUTES = 30  # Gaussian smoothing (sigma) of the shading
 WIND_COLOR = "#2f4f6f"
 BAND_COLOR = "#f4f4f4"
 GRID_COLOR = "#dddddd"
@@ -221,25 +223,46 @@ def nice_temperature_range(values, intervals_min=4):
     return low, high
 
 
+def cloud_alpha(cover):
+    """Shading opacity for cloud cover in %: none in fair weather, darker
+    toward overcast."""
+    import numpy as np
+
+    level = np.clip((np.asarray(cover, dtype=float) - CLOUD_CLEAR) / (CLOUD_FULL - CLOUD_CLEAR), 0.0, 1.0)
+    return CLOUD_MAX_ALPHA * level ** 1.15
+
+
 def draw_cloud_shading(ax, readings):
-    """Shade `ax`'s background by cloud cover: a one-row RGBA image with one
-    pixel per minute, interpolated between the records' interval midpoints."""
+    """Shade `ax`'s background by cloud cover: a one-row RGBA image, smoothed
+    with a Gaussian over CLOUD_SMOOTH_MINUTES so it reads like a sky rather
+    than a bar code, drawn behind everything on the axes."""
     import matplotlib.colors
     import matplotlib.dates as mdates
     import numpy as np
 
     points = [(r["when"] - datetime.timedelta(minutes=RECORD_MINUTES / 2), r["cloud_cover"])
               for r in readings if r["cloud_cover"] is not None]
+    if not points:
+        return
     x = np.array([mdates.date2num(when) for when, _ in points])
-    cover = np.clip(np.array([c for _, c in points]) / 100.0, 0.0, 1.0)
+    cover = np.array([c for _, c in points], dtype=float)
     begin = x[0] - RECORD_MINUTES / 2 / 1440   # start of the first interval
     end = x[-1] + RECORD_MINUTES / 2 / 1440    # end of the last interval
-    grid = np.linspace(begin, end, max(2, int(round((end - begin) * 1440)) + 1))
-    alpha = CLOUD_MAX_ALPHA * np.interp(grid, x, cover) ** CLOUD_CURVE
 
-    image = np.zeros((1, len(grid), 4))
+    # Interpolate to one value per minute, smooth, then draw one pixel per
+    # 5 minutes: fine enough to follow the data, coarse enough not to alias.
+    minutes = max(2, int(round((end - begin) * 1440)) + 1)
+    fine = np.interp(np.linspace(begin, end, minutes), x, cover)
+    sigma = CLOUD_SMOOTH_MINUTES
+    radius = 3 * sigma
+    kernel = np.exp(-0.5 * (np.arange(-radius, radius + 1) / sigma) ** 2)
+    kernel /= kernel.sum()
+    smooth = np.convolve(np.pad(fine, radius, mode="edge"), kernel, mode="valid")
+    pixels = smooth[:: 5] if len(smooth) > 10 else smooth
+
+    image = np.zeros((1, len(pixels), 4))
     image[0, :, :3] = matplotlib.colors.to_rgb(CLOUD_COLOR)
-    image[0, :, 3] = alpha
+    image[0, :, 3] = cloud_alpha(pixels)
     y_low, y_high = ax.get_ylim()
     ax.imshow(image, extent=(begin, end, y_low, y_high), aspect="auto",
               interpolation="bilinear", zorder=0.5)
@@ -324,12 +347,11 @@ def draw(fig, readings, hours=24, title=None):
     # panel they go on the back (rain) axes, or they would cover the bars.
     hour = x_begin
     while hour < x_end:
-        if hour.hour % 2 == 1:
-            # Over the cloud shading the bands are very faint, so they don't
-            # chop its minute-by-minute gradient into hourly blocks.
-            ax_r.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR,
-                         alpha=0.25 if has_clouds else 1.0, zorder=0, lw=0)
-            ax_w.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
+        # With cloud cover the sky shading replaces the alternating hour bands,
+        # which would chop it into two-hour steps.
+        if hour.hour % 2 == 1 and not has_clouds:
+            for ax in (ax_r, ax_w):
+                ax.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
         if hour.hour == 0 and hour > x_begin:
             for ax in (ax_t, ax_w):
                 ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=1)
@@ -344,7 +366,7 @@ def draw(fig, readings, hours=24, title=None):
     if has_clouds:
         from matplotlib.patches import Patch
 
-        handles.append(Patch(color=CLOUD_COLOR, alpha=CLOUD_MAX_ALPHA * 0.8, label="Cloud cover (shading)"))
+        handles.append(Patch(color=CLOUD_COLOR, alpha=CLOUD_MAX_ALPHA * 0.7, label="Cloud cover (shading)"))
     ax_t.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.13), ncol=4, frameon=False, fontsize=10)
     if title:
         ax_t.set_title(title, loc="right", fontsize=11, color="#444444", pad=22)
@@ -355,6 +377,8 @@ def draw(fig, readings, hours=24, title=None):
     ax_w.set_ylim(0, w_high * 1.7)  # top part holds the arrows
     ax_w.set_yticks(range(0, w_high + 1, max(1, w_high // 2)))
     ax_w.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
+    if has_clouds:
+        draw_cloud_shading(ax_w, readings)  # behind the wind as well
     ax_w.fill_between(times, speeds, color=WIND_COLOR, alpha=0.12, lw=0, zorder=2)
     ax_w.plot(times, speeds, color=WIND_COLOR, lw=1.6, zorder=3, label="Wind speed")
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
@@ -432,10 +456,22 @@ def start_qemu(qemu, firmware, host_port, speed=None):
 # ---- record: collect live measurements and keep the chart up to date ---------
 
 
+LOG_CAPACITY = 256  # records the firmware keeps (weather_log::CAPACITY)
+
+
+def safe_interval(speed):
+    """Real seconds between imports that keep well inside the firmware's log:
+    a quarter of the time it takes to fill it, at most 2 s."""
+    records_per_second = speed / (RECORD_MINUTES * 60)  # one per 600 simulated s
+    if records_per_second <= 0:
+        return 2.0
+    return max(0.2, min(2.0, LOG_CAPACITY / records_per_second / 4))
+
+
 def record(client, csv_path, out_path, hours, interval, plot_hours, live, title):
-    """Import new records every `interval` real seconds and redraw the chart,
-    until `hours` simulated hours have been recorded (0 = until Ctrl-C or the
-    live window is closed)."""
+    """Import new records every `interval` real seconds (None: chosen from the
+    speed) and redraw the chart, until `hours` simulated hours have been
+    recorded (0 = until Ctrl-C or the live window is closed)."""
     figure = None
     if live:
         import matplotlib.pyplot as plt
@@ -443,7 +479,9 @@ def record(client, csv_path, out_path, hours, interval, plot_hours, live, title)
         plt.ion()
         figure = plt.figure(figsize=(13, 7.2))
     speed = client.command("speed").split()[-1]
-    print(f"Recording at {speed}x into {csv_path}"
+    if interval is None:
+        interval = safe_interval(int(speed))
+    print(f"Recording at {speed}x into {csv_path}, importing every {interval:.2f} s"
           + (f" for {hours} simulated hours" if hours else " (Ctrl-C stops)"))
     if speed == "1":
         print("Real time: the station logs a record every 10 minutes.")
@@ -501,7 +539,9 @@ def main(argv=None):
     p_rec = sub.add_parser("record", help="collect live measurements and keep the chart up to date")
     p_rec.add_argument("--speed", type=int, help="simulation speed: 1 = real time (default), up to 72000")
     p_rec.add_argument("--hours", type=int, default=0, help="simulated hours to record (0 = until Ctrl-C)")
-    p_rec.add_argument("--interval", type=float, default=2.0, help="real seconds between imports")
+    p_rec.add_argument("--interval", type=float,
+                       help="real seconds between imports (default: from the speed, fast enough "
+                            "that the firmware's log never wraps between imports)")
     p_rec.add_argument("--port", type=int, help="use an already running firmware on this host UDP port")
     p_rec.add_argument("--firmware", default="build/firmware.elf")
     p_rec.add_argument("--qemu", default="qemu-system-aarch64")

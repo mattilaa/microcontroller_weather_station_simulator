@@ -101,8 +101,8 @@ minutes, which takes the firmware a few milliseconds, so the console and network
 responsive.
 
 At 72000× the station logs 120 records per second, and its 256-record log wraps in about
-2 seconds. Import at least every second (`record --interval 0.5`), or records
-are lost; `fetch` and `record` warn when that happens.
+2 seconds. `record` picks its import interval from the speed (0.53 s at 72000×), so it
+keeps up. `fetch`, and `record` with a too-long `--interval`, warn when records are lost.
 
 ## Memory: 32 KiB of RAM, code in flash
 
@@ -181,12 +181,13 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
 
 - **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
   humidity), and hourly precipitation bars on the right-hand mm axis. Cloud cover dims the
-  background behind them: a smooth blue-grey gradient through every 10-minute record (as
-  detailed as the temperature line), darker the cloudier, drawn underneath everything so
-  it never hides a measurement.
+  background behind them: a smooth blue-grey "sky", untinted in fair weather (under 15 %)
+  and darker toward overcast. It's smoothed over about half an hour and drawn underneath
+  everything, so it never hides a measurement.
 - **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
-  the hourly mean speed under each arrow.
-- **Time axis:** alternating hour bands and a dashed line at each midnight.
+  the hourly mean speed under each arrow. The cloud cover shading continues behind it.
+- **Time axis:** a dashed line at each midnight, plus alternating hour bands when there is
+  no cloud cover data (the sky shading replaces them).
 
 With the [virtual environment](#python-virtual-environment) set up and active:
 
@@ -194,7 +195,7 @@ With the [virtual environment](#python-virtual-environment) set up and active:
 # Record live: starts its own QEMU, imports records as they are measured and keeps
 # weather.png up to date (Ctrl-C stops). --speed is the speed switch.
 python tools/weather_tool.py record --speed 3600 --hours 48     # 48 h in under a minute
-python tools/weather_tool.py record --speed 72000 --hours 72 --interval 0.5   # 72 h in ~5 s
+python tools/weather_tool.py record --speed 72000 --hours 72   # 72 h in ~5 s
 python tools/weather_tool.py record --speed 600 --live          # also a live chart window
 python tools/weather_tool.py record                             # real time
 

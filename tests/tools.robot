@@ -46,12 +46,13 @@ Record Collects Live Measurements At A Chosen Speed
     PNG File Should Be Valid    ${png}
 
 Record Keeps Up At The Fastest Speed
-    [Documentation]    72000x logs 120 records per second; importing every half
-    ...                second must not lose any before the firmware's log wraps.
+    [Documentation]    72000x logs 120 records per second; with its default
+    ...                import interval (chosen from the speed) record must not
+    ...                lose any before the firmware's 256-record log wraps.
     ${csv}=    Set Variable    ${OUTPUT DIR}/fast_weather.csv
     ${result}=    Run Process    ${PYTHON}    ${TOOL}    record
     ...    --firmware    ${FIRMWARE}    --qemu    ${QEMU}    --speed    72000
-    ...    --hours    48    --interval    0.5    --csv    ${csv}
+    ...    --hours    48    --csv    ${csv}
     ...    --out    ${OUTPUT DIR}/fast_weather.png    timeout=120s    stderr=STDOUT
     Should Be Equal As Integers    ${result.rc}    0    msg=${result.stdout}
     Should Not Contain    ${result.stdout}    overwritten

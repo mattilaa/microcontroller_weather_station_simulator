@@ -1,4 +1,4 @@
-[![CI](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml/badge.svg)](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml)
+[![CI](https://github.com/mattilaa/microcontroller_weather_station_simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/mattilaa/microcontroller_weather_station_simulator/actions/workflows/ci.yml)
 
 # Microcontroller weather station simulator using QEMU
 

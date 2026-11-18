@@ -204,7 +204,8 @@ TEMPERATURE_COLOR = "#9b1c1c"
 DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
 CLOUD_COLOR = "#7d8fa6"  # muted blue-grey: dims the background, not the data
-CLOUD_MAX_ALPHA = 0.35   # at 100 % cloud cover
+CLOUD_MAX_ALPHA = 0.5    # at 100 % cloud cover
+CLOUD_CURVE = 1.3        # > 1: clear spells stay lighter than overcast
 WIND_COLOR = "#2f4f6f"
 BAND_COLOR = "#f4f4f4"
 GRID_COLOR = "#dddddd"
@@ -218,6 +219,31 @@ def nice_temperature_range(values, intervals_min=4):
     while (high - low) / 5 < intervals_min:
         low -= 5
     return low, high
+
+
+def draw_cloud_shading(ax, readings):
+    """Shade `ax`'s background by cloud cover: a one-row RGBA image with one
+    pixel per minute, interpolated between the records' interval midpoints."""
+    import matplotlib.colors
+    import matplotlib.dates as mdates
+    import numpy as np
+
+    points = [(r["when"] - datetime.timedelta(minutes=RECORD_MINUTES / 2), r["cloud_cover"])
+              for r in readings if r["cloud_cover"] is not None]
+    x = np.array([mdates.date2num(when) for when, _ in points])
+    cover = np.clip(np.array([c for _, c in points]) / 100.0, 0.0, 1.0)
+    begin = x[0] - RECORD_MINUTES / 2 / 1440   # start of the first interval
+    end = x[-1] + RECORD_MINUTES / 2 / 1440    # end of the last interval
+    grid = np.linspace(begin, end, max(2, int(round((end - begin) * 1440)) + 1))
+    alpha = CLOUD_MAX_ALPHA * np.interp(grid, x, cover) ** CLOUD_CURVE
+
+    image = np.zeros((1, len(grid), 4))
+    image[0, :, :3] = matplotlib.colors.to_rgb(CLOUD_COLOR)
+    image[0, :, 3] = alpha
+    y_low, y_high = ax.get_ylim()
+    ax.imshow(image, extent=(begin, end, y_low, y_high), aspect="auto",
+              interpolation="bilinear", zorder=0.5)
+    ax.set_ylim(y_low, y_high)  # imshow may change the limits
 
 
 def plot(readings, out_path, hours=24, title=None):
@@ -287,32 +313,23 @@ def draw(fig, readings, hours=24, title=None):
     ax_t.patch.set_visible(False)
 
     # Cloud cover as a dimmed background behind everything in the top panel:
-    # one band per 10-minute record, darker the cloudier. It goes on the back
-    # (rain) axes below the hour bands and bars (zorder), so it never hides
-    # a measurement.
+    # a smooth gradient through every 10-minute record (as detailed as the
+    # temperature line), darker the cloudier. It goes on the back (rain) axes
+    # below the hour bands and bars (zorder), so it never hides a measurement.
     has_clouds = any(r["cloud_cover"] is not None for r in readings)
-    for r in readings:
-        if r["cloud_cover"] is None or r["cloud_cover"] <= 0:
-            continue
-        ax_r.axvspan(
-            r["when"] - datetime.timedelta(minutes=RECORD_MINUTES),
-            r["when"],
-            color=CLOUD_COLOR,
-            # Grows faster than linearly: clear spells stay light, overcast stands out.
-            alpha=CLOUD_MAX_ALPHA * (min(r["cloud_cover"], 100.0) / 100.0) ** 1.6,
-            lw=0,
-            zorder=0.5,
-        )
+    if has_clouds:
+        draw_cloud_shading(ax_r, readings)
 
     # Alternating hour bands and a dashed line at each midnight. In the top
     # panel they go on the back (rain) axes, or they would cover the bars.
     hour = x_begin
     while hour < x_end:
         if hour.hour % 2 == 1:
-            for ax in (ax_r, ax_w):
-                # Faint enough to show the cloud shading through it.
-                ax.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, alpha=0.6,
-                           zorder=0, lw=0)
+            # Over the cloud shading the bands are very faint, so they don't
+            # chop its minute-by-minute gradient into hourly blocks.
+            ax_r.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR,
+                         alpha=0.25 if has_clouds else 1.0, zorder=0, lw=0)
+            ax_w.axvspan(hour, hour + datetime.timedelta(hours=1), color=BAND_COLOR, zorder=0, lw=0)
         if hour.hour == 0 and hour > x_begin:
             for ax in (ax_t, ax_w):
                 ax.axvline(hour, color="#777777", ls=(0, (3, 3)), lw=1, zorder=1)

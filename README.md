@@ -181,8 +181,9 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
 
 - **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
   humidity), and hourly precipitation bars on the right-hand mm axis. Cloud cover dims the
-  background behind them: one blue-grey band per 10-minute record, darker the cloudier,
-  drawn underneath everything so it never hides a measurement.
+  background behind them: a smooth blue-grey gradient through every 10-minute record (as
+  detailed as the temperature line), darker the cloudier, drawn underneath everything so
+  it never hides a measurement.
 - **Bottom panel:** wind speed, with hourly arrows that point where the wind blows to and
   the hourly mean speed under each arrow.
 - **Time axis:** alternating hour bands and a dashed line at each midnight.

@@ -74,7 +74,7 @@ add_custom_command(TARGET firmware POST_BUILD
 # ---- QEMU helpers ---------------------------------------------------------
 find_program(QEMU qemu-system-aarch64)
 if(QEMU)
-    set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -semihosting
+    set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -nic none -semihosting
                   -kernel $<TARGET_FILE:firmware>)
 
     # cmake --build build --target run      (quit: press 'q', or Ctrl-A X)

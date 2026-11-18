@@ -34,6 +34,7 @@ robot --pythonpath tests/libraries --variable FIRMWARE:build-release/firmware.el
 Robot test notes:
 - Two or more spaces separate arguments in `.robot` files, so write `{2}` in regexes instead of literal double spaces.
 - `qemu_firmware.py` reads output through a cursor: `Wait For Output` only sees text after the previous match, and `Collect Output` moves the cursor to the end.
+- QEMU is always run with `-nic none`: the default virtio NIC needs `efi-virtio.rom`, which CI's minimal QEMU install doesn't ship (QEMU exits at startup).
 - Timing checks allow wide tolerances (e.g. 450–650 ms for the 500 ms heartbeat) because CI runners stall QEMU.
 - The `Image Fits Size Budget` test in `image.robot` caps code + rodata + data at 16 KiB.
 
@@ -50,7 +51,7 @@ GCC details:
 
 **Non-interactive run** (e.g. to check behavior from a script). The firmware reads single-key commands from the UART: `h s d v q`. macOS has no `timeout`, so put a kill-based watchdog around QEMU:
 ```sh
-(sleep 2; printf 's'; sleep 0.3; printf 'q'; sleep 2) | qemu-system-aarch64 -M virt -cpu cortex-a53 -m 128M -nographic -semihosting -kernel build/firmware.elf & P=$!; sleep 8; kill $P 2>/dev/null; wait $P
+(sleep 2; printf 's'; sleep 0.3; printf 'q'; sleep 2) | qemu-system-aarch64 -M virt -cpu cortex-a53 -m 128M -nographic -nic none -semihosting -kernel build/firmware.elf & P=$!; sleep 8; kill $P 2>/dev/null; wait $P
 ```
 
 ## Embedded C++ constraints (enforced by flags in CMakeLists.txt)

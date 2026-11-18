@@ -43,6 +43,9 @@ class QemuFirmware:
             "-cpu", "cortex-a53",
             "-m", "128M",
             "-nographic",
+            # No network card: the default virtio NIC needs efi-virtio.rom,
+            # which minimal QEMU installs (e.g. CI) don't ship.
+            "-nic", "none",
             "-semihosting",
             "-kernel", image,
         ]
@@ -102,7 +105,13 @@ class QemuFirmware:
                     self._cursor = match.end()
                     return match.group(0)
                 remaining = deadline - time.monotonic()
-                if remaining <= 0 or self._process_finished():
+                if self._process_finished():
+                    code = None if self._process is None else self._process.poll()
+                    raise AssertionError(
+                        f"QEMU exited (code {code}) before {pattern!r} appeared. "
+                        f"Output since last match:\n{self._output[self._cursor:]}"
+                    )
+                if remaining <= 0:
                     raise AssertionError(
                         f"Pattern {pattern!r} not found within {timeout}. "
                         f"Output since last match:\n{self._output[self._cursor:]}"

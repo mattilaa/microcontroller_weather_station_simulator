@@ -8,8 +8,12 @@ Resource            resources/firmware.resource
 
 *** Variables ***
 ${LOAD_ADDRESS}     0x40000000
-# Code + read-only data + initialized data. Raise deliberately if needed.
-${SIZE_BUDGET}      32768
+# The RAM region in linker/qemu_virt.ld; FLASH is everything below it.
+${RAM_START}        0x40100000
+${RAM_BUDGET}       32768
+${STACK_SIZE}       4096
+# Flash image: code + read-only data + .data's initial values.
+${FLASH_BUDGET}     32768
 
 
 *** Test Cases ***
@@ -42,8 +46,26 @@ No Constructors Run Before Main
     ${size}=    Get Section Size    .init_array
     Should Be Equal As Integers    ${size}    0
 
-Image Fits Size Budget
+Flash Image Fits Size Budget
     ${size}=    Get Loaded Size
-    Log    Loaded image size: ${size} bytes
-    Should Be True    ${size} <= ${SIZE_BUDGET}
-    ...    msg=Image is ${size} bytes, budget is ${SIZE_BUDGET}
+    Log    Flash image size: ${size} bytes
+    Should Be True    ${size} <= ${FLASH_BUDGET}
+    ...    msg=Flash image is ${size} bytes, budget is ${FLASH_BUDGET}
+
+RAM Fits In 32 KiB
+    [Documentation]    .data + .bss + the stack. (The linker already refuses
+    ...                to link more; this documents and double-checks it.)
+    ${data}=    Get Section Size    .data
+    ${bss}=    Get Section Size    .bss
+    ${stack}=    Get Section Size    .stack
+    ${ram}=    Evaluate    ${data} + ${bss} + ${stack}
+    Log    RAM: .data ${data} + .bss ${bss} + stack ${stack} = ${ram} bytes
+    Should Be True    ${ram} <= ${RAM_BUDGET}    msg=RAM use ${ram} bytes exceeds ${RAM_BUDGET}
+    Should Be Equal As Integers    ${stack}    ${STACK_SIZE}
+
+Data Runs From RAM And Loads From Flash
+    ${load}=    Get Symbol Address    __data_load
+    ${start}=    Get Symbol Address    __data_start
+    ${bss_end}=    Get Symbol Address    __bss_end
+    Should Be True    ${load} < ${RAM_START} <= ${start}    msg=.data must load from FLASH and run in RAM
+    Should Be True    ${bss_end} <= ${RAM_START} + ${RAM_BUDGET}

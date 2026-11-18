@@ -68,6 +68,24 @@ Verbose Command Silences Periodic Output
     Press Key And Expect    v    verbose on
     Wait For Output    ${READING}    timeout=2s
 
+Stack Stays Within Its Budget
+    [Documentation]    Run the deepest code paths (console reports, UDP replies
+    ...                with log pages, a large ping), then check the measured
+    ...                peak stack use leaves at least half of the 4 KiB unused.
+    Wait For Output    temp    timeout=3s
+    Wait For Output    temp    timeout=3s
+    FOR    ${key}    IN    w    d    n
+        Send Key    ${key}
+    END
+    Send UDP Command    weather
+    Send UDP Command    log 0
+    Send UDP Command    help
+    Ping Firmware    1400
+    Press Key And Expect    s    --- status
+    ${line}=    Wait For Output    stack: peak \\d+ of 4096 bytes
+    ${peak}=    Find All    peak (\\d+)    ${line}
+    Should Be True    ${peak}[0] <= 2048    msg=Stack peak ${peak}[0] of 4096 bytes
+
 Unknown Command Is Reported
     Press Key And Expect    x    unknown command 'x' \\(h for help\\)
 

@@ -39,6 +39,7 @@ add_executable(firmware
     src/net/stack.cpp
     src/runtime/cxx_runtime.cpp
     src/runtime/libc_support.cpp
+    src/runtime/stack_usage.cpp
     src/util/text_stream.cpp
     src/util/static_tests.cpp   # compile-time tests only, emits no code
 )
@@ -77,6 +78,7 @@ target_link_options(firmware PRIVATE
     -T${LINKER_SCRIPT}
     -Wl,--gc-sections
     -Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/firmware.map
+    -Wl,--print-memory-usage   # FLASH / RAM use against the 32 KiB budget
 )
 set_target_properties(firmware PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
 

@@ -1,6 +1,7 @@
 #include "app/tasks.hpp"
 
 #include "hal/semihosting.hpp"
+#include "runtime/stack_usage.hpp"
 
 namespace app
 {
@@ -66,7 +67,9 @@ void console_task::print_status(uint64_t now_ms)
     _out << "--- status @ " << now_ms << " ms ---\n";
     if(_station.has_reading())
         _out << "weather: " << _station.latest() << '\n';
-    _out << "speed: " << _station.speed() << "x\n"
+    _out << "stack: peak " << runtime::stack_peak() << " of "
+         << runtime::stack_size() << " bytes\n"
+         << "speed: " << _station.speed() << "x\n"
          << "log: " << _station.log().size() << " records, next sequence "
          << _station.log().next_sequence() << '\n';
     print_network();

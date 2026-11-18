@@ -100,9 +100,38 @@ behaves the same at 1× and at 72000×. Every sample is still taken from the mod
 minutes, which takes the firmware a few milliseconds, so the console and network stay
 responsive.
 
-At 72000× the station logs 120 records per second, and its 512-record log wraps in about
-4 seconds. Import at least every couple of seconds (`record --interval 0.5`), or records
+At 72000× the station logs 120 records per second, and its 256-record log wraps in about
+2 seconds. Import at least every second (`record --interval 0.5`), or records
 are lost; `fetch` and `record` warn when that happens.
+
+## Memory: 32 KiB of RAM, code in flash
+
+The firmware is laid out like a microcontroller with **32 KiB of RAM**:
+- **Flash:** code, constants and the initial values of `.data`.
+- **RAM:** only `.data`, `.bss` and the stack.
+- **Boot:** `startup.S` copies `.data` from flash to RAM, as on a real chip. QEMU `virt` has
+  no flash for a bare `-kernel` image, so the flash region is the start of QEMU's RAM, used
+  as read-only image memory.
+- **Enforced by the linker:** a build that needs more RAM fails with
+  `section '.bss' will not fit in region 'RAM'`. Every link prints the use:
+
+```
+Memory region         Used Size  Region Size  %age Used
+           FLASH:       25976 B         1 MB      2.48%
+             RAM:       27504 B        32 KB     83.94%
+```
+
+| RAM user | Bytes |
+|----------|-------|
+| Ethernet: 4 receive + 2 transmit buffers of 1526 B, plus rings | 9 400 |
+| Reading log: 256 records × 40 B | 10 260 |
+| IP stack frame copies (receive + transmit), in `.data` | 3 090 |
+| Weather model, sensors, tasks, console | ~700 |
+| Stack | 4 096 |
+
+The stack is filled with a pattern at boot, and the console's `s` status shows the peak use
+since then. After the deepest code paths (console reports, UDP log pages, a 1400-byte ping),
+it peaks at about 870 of 4096 bytes. A test checks it stays under half.
 
 ## Weather simulation
 
@@ -143,7 +172,7 @@ listens on port 5000; each datagram is one command:
 echo weather | nc -u -w1 127.0.0.1 5555
 ```
 
-The firmware keeps the last 512 records (3.5 simulated days) in its log.
+The firmware keeps the last 256 records (42.7 simulated hours) in its log.
 
 ## Importing and plotting the data
 
@@ -252,7 +281,7 @@ UART and over Ethernet:
 | `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
-| `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, size budget |
+| `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, flash size budget, RAM within 32 KiB, `.data` loaded from flash |
 
 For Ethernet, `tests/libraries/network_peer.py` acts as a second host. QEMU's `dgram`
 netdev carries each Ethernet frame as a UDP datagram between QEMU and the library. This
@@ -305,7 +334,7 @@ tools/weather_tool.py               import the reading log over UDP, plot it (ma
 tests/libraries/                    Python keyword libraries: QEMU/UART driver, network peer, ELF checks
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
-linker/qemu_virt.ld                 memory map: RAM at 0x40000000, .init_array, stack, .bss
+linker/qemu_virt.ld                 memory map: FLASH at 0x40000000, 32 KiB RAM at 0x40100000
 src/startup.S                       _start: park secondary cores, set up the stack, enable FP, zero .bss, run constructors, call main
 src/main.cpp                        static object graph + main loop
 src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
@@ -326,6 +355,7 @@ src/net/stack.*                     IPv4 stack: ARP, ICMP echo, UDP
 src/net/bytes.hpp                   big-endian field access, Internet checksum
 src/runtime/cxx_runtime.cpp         __cxa_pure_virtual, global-constructor loop
 src/runtime/libc_support.cpp        memcpy, memmove, memset, memcmp
+src/runtime/stack_usage.*           stack size and peak use (high-water mark)
 src/util/text_stream.*              type-safe `out << ...` formatting to any sink (replaces printf)
 src/util/fixed_math.hpp             integer sin/cos, clamp, wrap, rounding
 src/util/random.hpp                 xorshift32 with approximate Gaussian noise

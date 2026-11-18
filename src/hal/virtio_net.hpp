@@ -20,7 +20,10 @@ namespace hal
 class virtio_net final : public net::nic
 {
 public:
-    static constexpr uint16_t QUEUE_SIZE = 16;
+    // Sized for a 32 KiB RAM budget: every descriptor owns a full-frame
+    // buffer (1526 bytes), so these six buffers are most of the driver's RAM.
+    static constexpr uint16_t RX_QUEUE_SIZE = 4;
+    static constexpr uint16_t TX_QUEUE_SIZE = 2;
     static constexpr size_t MAX_FRAME = 1514; // Ethernet header + 1500 MTU
 
     // Every virtio-net 1.x buffer starts with this 12-byte header
@@ -34,10 +37,10 @@ public:
     // as a separate zero-initialized global so it lands in .bss.
     struct dma_memory
     {
-        virtqueue<QUEUE_SIZE> rx;
-        virtqueue<QUEUE_SIZE> tx;
-        alignas(16) uint8_t rx_buffers[QUEUE_SIZE][BUFFER_SIZE];
-        alignas(16) uint8_t tx_buffers[QUEUE_SIZE][BUFFER_SIZE];
+        virtqueue<RX_QUEUE_SIZE> rx;
+        virtqueue<TX_QUEUE_SIZE> tx;
+        alignas(16) uint8_t rx_buffers[RX_QUEUE_SIZE][BUFFER_SIZE];
+        alignas(16) uint8_t tx_buffers[TX_QUEUE_SIZE][BUFFER_SIZE];
     };
 
     explicit constexpr virtio_net(dma_memory& memory) : _memory(memory) {}

@@ -68,14 +68,14 @@ virtio_net::status virtio_net::init()
 
     // Hand every receive buffer to the device up front.
     volatile auto& rx = shared(_memory.rx);
-    for(uint16_t i = 0; i < QUEUE_SIZE; ++i)
+    for(uint16_t i = 0; i < RX_QUEUE_SIZE; ++i)
     {
         rx.desc[i].addr = reinterpret_cast<uintptr_t>(_memory.rx_buffers[i]);
         rx.desc[i].len = BUFFER_SIZE;
         rx.desc[i].flags = VIRTQ_DESC_F_WRITE;
         rx.avail.ring[i] = i;
     }
-    rx.avail.idx = QUEUE_SIZE;
+    rx.avail.idx = RX_QUEUE_SIZE;
 
     if(!_transport.setup_queue(RX_QUEUE, _memory.rx) ||
        !_transport.setup_queue(TX_QUEUE, _memory.tx))
@@ -107,7 +107,7 @@ bool virtio_net::send(util::span<const uint8_t> frame)
 
     // Wait (briefly) for a free transmit slot.
     for(int attempts = 0;
-        static_cast<uint16_t>(_tx_avail_next - _tx_used_seen) >= QUEUE_SIZE;
+        static_cast<uint16_t>(_tx_avail_next - _tx_used_seen) >= TX_QUEUE_SIZE;
         ++attempts)
     {
         if(attempts > 1'000'000)
@@ -115,7 +115,7 @@ bool virtio_net::send(util::span<const uint8_t> frame)
         reclaim_tx();
     }
 
-    const uint16_t slot = _tx_avail_next % QUEUE_SIZE;
+    const uint16_t slot = _tx_avail_next % TX_QUEUE_SIZE;
     uint8_t* buffer = _memory.tx_buffers[slot];
     net::fill_bytes(buffer, 0, HEADER_SIZE);
     net::copy_bytes(buffer + HEADER_SIZE, frame.data(), frame.size());
@@ -143,7 +143,7 @@ size_t virtio_net::receive(util::span<uint8_t> frame)
         return 0;
     memory_barrier(); // read the index before the element
 
-    const uint16_t position = _rx_used_seen % QUEUE_SIZE;
+    const uint16_t position = _rx_used_seen % RX_QUEUE_SIZE;
     const auto id = static_cast<uint16_t>(rx.used.ring[position].id);
     const uint32_t length = rx.used.ring[position].len;
     ++_rx_used_seen;
@@ -158,7 +158,7 @@ size_t virtio_net::receive(util::span<uint8_t> frame)
 
     // Give the buffer back to the device.
     const uint16_t avail = rx.avail.idx;
-    rx.avail.ring[avail % QUEUE_SIZE] = id;
+    rx.avail.ring[avail % RX_QUEUE_SIZE] = id;
     memory_barrier();
     rx.avail.idx = static_cast<uint16_t>(avail + 1);
     memory_barrier();

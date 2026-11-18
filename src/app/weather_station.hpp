@@ -63,7 +63,9 @@ private:
 class weather_log
 {
 public:
-    static constexpr size_t CAPACITY = 512; // 3.5 simulated days
+    // 256 records of 40 bytes: 10 KiB of the 32 KiB RAM budget, 42.7
+    // simulated hours. (ring_buffer needs a power of two.)
+    static constexpr size_t CAPACITY = 256;
 
     struct entry
     {

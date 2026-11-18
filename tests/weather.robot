@@ -110,20 +110,20 @@ Log Is Served In Pages
     Should Be Equal    ${reply}    error: expected log <sequence>
 
 Rain Falls In Showers Measured By A Tipping Bucket
-    [Documentation]    Over three simulated days it rains at least once, in
+    [Documentation]    Over 40 simulated hours it rains at least once, in
     ...                multiples of the 0.2 mm bucket, and not all the time.
-    Send UDP Command    advance 4320
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
     ${log}=    Fetch Weather Log
     ${rain}=    Evaluate    [r["rain"] for r in $log]
     ${total}=    Evaluate    sum($rain)
     ${rainy}=    Evaluate    sum(1 for x in $rain if x > 0)
-    Should Be True    ${total} > 0    msg=No rain in three days
+    Should Be True    ${total} > 0    msg=No rain in 40 hours
     Should Be True    ${rainy} < len($rain) / 3    msg=Rain in ${rainy} of ${{len($rain)}} readings
     ${not_tips}=    Evaluate    [x for x in $rain if abs(x / 0.2 - round(x / 0.2)) > 1e-6]
     Should Be Empty    ${not_tips}    msg=Not multiples of 0.2 mm: ${not_tips}
 
 It Is More Humid When It Rains
-    Send UDP Command    advance 4320
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
     ${log}=    Fetch Weather Log
     ${wet}=    Evaluate    [r["humidity"] for r in $log if r["rain"] > 0]
     ${dry}=    Evaluate    [r["humidity"] for r in $log if r["rain"] == 0]
@@ -133,7 +133,7 @@ It Is More Humid When It Rains
 
 It Is Cloudier When It Rains
     [Documentation]    Rain falls only from a well-clouded sky.
-    Send UDP Command    advance 4320
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
     ${log}=    Fetch Weather Log
     ${wet}=    Evaluate    [r["cloud_cover"] for r in $log if r["rain"] > 0]
     ${dry}=    Evaluate    [r["cloud_cover"] for r in $log if r["rain"] == 0]
@@ -144,7 +144,7 @@ It Is Cloudier When It Rains
     Should Be True    ${difference} > 20    msg=Only ${difference} % more cloud cover in rain
 
 Daily Rain Total Counts From Midnight
-    Send UDP Command    advance 4320
+    Send UDP Command    advance 2400    # 40 h: within the 256-record log
     ${now}=    Query Weather
     ${log}=    Fetch Weather Log
     # Today's records up to the queried sample. The 00:00 record still

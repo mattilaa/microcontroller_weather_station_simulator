@@ -90,7 +90,7 @@ class WeatherClient:
                 raise ValueError(f"Unexpected reply: {header}")
             fields = dict(item.split("=") for item in header.split()[1:])
             if rows and int(rows[0].split(",")[0]) > next_sequence:
-                # The firmware keeps 512 records; at very high speeds it can
+                # The firmware keeps 256 records; at very high speeds it can
                 # overwrite some before they are imported.
                 missed = int(rows[0].split(",")[0]) - next_sequence
                 print(f"warning: {missed} records were overwritten before import "

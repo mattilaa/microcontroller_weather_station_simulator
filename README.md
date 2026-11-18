@@ -1,6 +1,6 @@
 [![CI](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml/badge.svg)](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml)
 
-# Microcontroller example
+# Microcontroller weather station example using QEMU
 
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style
 main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C++20

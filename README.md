@@ -67,7 +67,45 @@ To use GCC instead of clang:
 
 ```sh
 cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake
+# with Debian/Ubuntu's g++-aarch64-linux-gnu instead:
+cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake -DCROSS_PREFIX=aarch64-linux-gnu-
 ```
+
+## Tests
+
+Robot Framework suites in `tests/` boot the firmware in QEMU and drive it over the
+UART. They cover boot, task timing, the console commands and the quit exit code. They
+also check the ELF image statically: load address, no RTTI, exception, heap or guard
+symbols, an empty `.init_array`, and a size budget.
+
+```sh
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r tests/requirements.txt
+cmake -B build -G Ninja                       # configure with the venv active
+cmake --build build
+ctest --test-dir build --output-on-failure    # report: build/robot/log.html
+```
+
+Run one suite or test directly:
+
+```sh
+robot --pythonpath tests/libraries --outputdir build/robot tests/console.robot
+robot --pythonpath tests/libraries --outputdir build/robot --test "Quit*" tests
+```
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request, in three stages:
+
+| Stage   | Jobs | What it does |
+|---------|------|--------------|
+| `lint`  | 1    | clang-format check (pinned to 21.1.8) and a Robot Framework dry run |
+| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, built with `-DFIRMWARE_WERROR=ON`; uploads the firmware as an artifact |
+| `test`  | 8    | the same matrix; downloads the matching firmware and runs the Robot suites under QEMU, with no compiler installed |
+
+GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
+Ubuntu's native `g++`. Both provide `aarch64-linux-gnu-*` binaries, so both use the same
+`CROSS_PREFIX`. Robot logs are uploaded as artifacts too.
 
 ### Debugging
 
@@ -79,7 +117,10 @@ lldb build/firmware.elf -o "gdb-remote 1234"
 ## Layout
 
 ```
-CMakeLists.txt                      build flags, objcopy to .bin, run/debug targets
+CMakeLists.txt                      build flags, objcopy to .bin, run/debug targets, ctest
+.github/workflows/ci.yml            GitHub Actions pipeline
+tests/*.robot                       Robot Framework suites (boot, tasks, console, image)
+tests/libraries/                    Python keyword libraries: QEMU/UART driver, ELF checks
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: RAM at 0x40000000, .init_array, stack, .bss

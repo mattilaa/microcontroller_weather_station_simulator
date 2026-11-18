@@ -32,6 +32,14 @@ build.ninja
 *.core
 qemu.log
 
+# Python / Robot Framework
+.venv/
+__pycache__/
+*.pyc
+output.xml
+log.html
+report.html
+
 # Editors and IDEs
 .vscode/
 .idea/

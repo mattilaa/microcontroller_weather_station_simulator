@@ -15,6 +15,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
+option(FIRMWARE_WERROR "Treat compiler warnings as errors" OFF)
+
 set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/linker/qemu_virt.ld)
 
 add_executable(firmware
@@ -51,6 +53,7 @@ target_compile_options(firmware PRIVATE
     -fdata-sections
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wnon-virtual-dtor
     $<$<CONFIG:Debug>:-Og -g3>
+    $<$<BOOL:${FIRMWARE_WERROR}>:-Werror>
 )
 
 target_link_options(firmware PRIVATE
@@ -85,4 +88,22 @@ if(QEMU)
         COMMAND ${QEMU} ${QEMU_ARGS} -S -gdb tcp::1234
         DEPENDS firmware USES_TERMINAL
         COMMENT "QEMU waiting for debugger on :1234")
+endif()
+
+# ---- Robot Framework tests ------------------------------------------------
+# ctest --test-dir build --output-on-failure
+# Uses the active virtualenv first (pip install -r tests/requirements.txt).
+enable_testing()
+set(Python3_FIND_VIRTUALENV FIRST)
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND AND QEMU)
+    add_test(NAME robot
+        COMMAND ${Python3_EXECUTABLE} -m robot
+                --pythonpath ${CMAKE_CURRENT_SOURCE_DIR}/tests/libraries
+                --variable FIRMWARE:$<TARGET_FILE:firmware>
+                --variable QEMU:${QEMU}
+                --outputdir ${CMAKE_CURRENT_BINARY_DIR}/robot
+                --consolecolors off
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()

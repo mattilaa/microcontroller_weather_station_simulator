@@ -1,8 +1,11 @@
-# CMake toolchain file: GNU Arm toolchain (aarch64-none-elf-gcc) for bare-metal AArch64.
-# Alternative to the clang toolchain; get it from Arm GNU Toolchain downloads.
+# CMake toolchain file: GNU toolchain for bare-metal AArch64.
+# Alternative to the clang toolchain.
 #
-# Usage:
+# Usage (Arm GNU Toolchain, aarch64-none-elf-g++):
 #   cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake
+# Usage (Debian/Ubuntu g++-aarch64-linux-gnu, as used in CI):
+#   cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake \
+#         -DCROSS_PREFIX=aarch64-linux-gnu-
 
 set(CMAKE_SYSTEM_NAME      Generic)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
@@ -14,10 +17,12 @@ find_program(CMAKE_ASM_COMPILER ${CROSS_PREFIX}gcc     REQUIRED)
 find_program(CMAKE_OBJCOPY      ${CROSS_PREFIX}objcopy REQUIRED)
 find_program(CMAKE_SIZE         ${CROSS_PREFIX}size    REQUIRED)
 
-set(CPU_FLAGS "-mcpu=cortex-a53")
+# Linux-targeting distro compilers default to PIE and stack protector, which
+# need a dynamic loader and libc symbols (__stack_chk_fail); turn them off.
+set(CPU_FLAGS "-mcpu=cortex-a53 -fno-pie -fno-stack-protector")
 set(CMAKE_CXX_FLAGS_INIT "${CPU_FLAGS}")
 set(CMAKE_ASM_FLAGS_INIT "${CPU_FLAGS}")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-nostdlib -static")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-nostdlib -static -no-pie")
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 

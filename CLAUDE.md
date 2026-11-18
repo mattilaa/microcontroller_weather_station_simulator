@@ -11,7 +11,8 @@ cmake -B build -G Ninja                 # configure (clang++/lld toolchain is th
 cmake --build build                     # build: firmware.elf, firmware.bin, firmware.map
 cmake --build build --target run        # run in QEMU; press 'q' to exit (semihosting), or Ctrl-A X
 cmake --build build --target debug      # QEMU halts and waits for a debugger on :1234
-cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake   # GCC alternative (untested)
+cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake -DCROSS_PREFIX=aarch64-linux-gnu-   # GCC (as in CI)
+cmake -B build -DFIRMWARE_WERROR=ON     # warnings as errors (CI always sets this)
 ```
 
 Format check (the repo has a `.clang-format`: Allman braces, 80 columns). Under zsh, pass files via `find | xargs`, not an unquoted variable:
@@ -19,10 +20,33 @@ Format check (the repo has a `.clang-format`: Allman braces, 80 columns). Under 
 find src \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format --dry-run --Werror
 ```
 
-**Tests** are compile-time only: `src/util/static_tests.cpp` holds `static_assert`s on `constexpr` code. A successful build means they all pass. There's no way to run a single test; to check one, compile it alone:
+**Tests** come in two kinds:
+- **Compile-time:** `src/util/static_tests.cpp` holds `static_assert`s on `constexpr` code; a successful build means they pass.
+- **Robot Framework** (`tests/*.robot`): boots the firmware in QEMU and drives the UART, plus static ELF checks in `image.robot`. They need the venv: `python3 -m venv .venv && .venv/bin/pip install -r tests/requirements.txt`. Configure CMake with the venv activated, so `find_package(Python3)` picks it up.
+
 ```sh
-$(brew --prefix llvm)/bin/clang++ --target=aarch64-none-elf -std=c++20 -ffreestanding -nostdinc++ -Isrc -fsyntax-only src/util/static_tests.cpp
+ctest --test-dir build --output-on-failure                     # all suites; log in build/robot/log.html
+robot --pythonpath tests/libraries --outputdir build/robot tests/console.robot           # one suite
+robot --pythonpath tests/libraries --outputdir build/robot --test "Quit*" tests          # one test
+robot --pythonpath tests/libraries --variable FIRMWARE:build-release/firmware.elf ...    # another build
 ```
+
+Robot test notes:
+- Two or more spaces separate arguments in `.robot` files, so write `{2}` in regexes instead of literal double spaces.
+- `qemu_firmware.py` reads output through a cursor: `Wait For Output` only sees text after the previous match, and `Collect Output` moves the cursor to the end.
+- Timing checks allow wide tolerances (e.g. 450–650 ms for the 500 ms heartbeat) because CI runners stall QEMU.
+- The `Image Fits Size Budget` test in `image.robot` caps code + rodata + data at 16 KiB.
+
+**CI** (`.github/workflows/ci.yml`) runs three stages:
+- **`lint`:** clang-format pinned to 21.1.8 via pip, plus `robot --dryrun`.
+- **`build`:** host {x64 `ubuntu-24.04`, arm64 `ubuntu-24.04-arm`} × {gcc, clang} × {Debug, Release}, built with `-DFIRMWARE_WERROR=ON`. It uploads `firmware-<host>-<toolchain>-<build_type>` artifacts.
+- **`test`** (`needs: build`): has no compiler. It downloads the matching artifact into `build/` and runs `robot` directly (not ctest), on the same host arch.
+
+The `build` and `test` matrices must be kept identical, because artifact names link them.
+
+GCC details:
+- GCC uses `CROSS_PREFIX=aarch64-linux-gnu-` on both hosts. On x64 that's the apt `g++-aarch64-linux-gnu` cross compiler; on arm64 it's the native `g++`, which ships the same prefixed binary names.
+- The GCC toolchain file adds `-fno-pie -fno-stack-protector -no-pie`, because distro GCC enables PIE and stack protector by default. Both break bare-metal linking.
 
 **Non-interactive run** (e.g. to check behavior from a script). The firmware reads single-key commands from the UART: `h s d v q`. macOS has no `timeout`, so put a kill-based watchdog around QEMU:
 ```sh

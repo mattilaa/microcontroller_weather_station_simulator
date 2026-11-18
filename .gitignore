@@ -54,3 +54,8 @@ report.html
 # weather_tool.py default outputs
 weather.csv
 weather.png
+
+# tools.robot outputs when robot runs from the repo root (--output NONE)
+*_weather.csv
+*_weather.png
+replot.png

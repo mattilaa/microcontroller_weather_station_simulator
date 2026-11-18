@@ -3,15 +3,15 @@
 namespace app
 {
 
-Console& Console::operator<<(char c)
+console& console::operator<<(char c)
 {
     if(c == '\n')
-        uart_.put('\r');
-    uart_.put(c);
+        _uart.put('\r');
+    _uart.put(c);
     return *this;
 }
 
-Console& Console::operator<<(const char* s)
+console& console::operator<<(const char* s)
 {
     if(!s)
         s = "(null)";
@@ -20,12 +20,12 @@ Console& Console::operator<<(const char* s)
     return *this;
 }
 
-Console& Console::operator<<(bool b)
+console& console::operator<<(bool b)
 {
     return *this << (b ? "true" : "false");
 }
 
-Console& Console::operator<<(long v)
+console& console::operator<<(long v)
 {
     uint64_t magnitude = static_cast<uint64_t>(v);
     if(v < 0)
@@ -37,25 +37,25 @@ Console& Console::operator<<(long v)
     return *this;
 }
 
-Console& Console::operator<<(unsigned long v)
+console& console::operator<<(unsigned long v)
 {
     put_uint(v, 10, 0, ' ');
     return *this;
 }
 
-Console& Console::operator<<(Dec d)
+console& console::operator<<(dec_fmt d)
 {
     put_uint(d.value, 10, d.width, d.pad);
     return *this;
 }
 
-Console& Console::operator<<(Hex h)
+console& console::operator<<(hex_fmt h)
 {
     put_uint(h.value, 16, h.width, h.pad);
     return *this;
 }
 
-void Console::put_uint(uint64_t v, unsigned base, uint8_t width, char pad)
+void console::put_uint(uint64_t v, unsigned base, uint8_t width, char pad)
 {
     char buf[24];
     unsigned i = 0;

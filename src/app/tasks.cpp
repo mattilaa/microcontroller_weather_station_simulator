@@ -7,13 +7,13 @@ namespace app
 
 namespace
 {
-Console& timestamp(Console& out, uint64_t now_ms)
+console& timestamp(console& out, uint64_t now_ms)
 {
     return out << '[' << dec(now_ms, 6) << " ms] ";
 }
 } // namespace
 
-Console& operator<<(Console& out, CentiCelsius t)
+console& operator<<(console& out, centi_celsius t)
 {
     int32_t v = t.value;
     if(v < 0)
@@ -25,48 +25,50 @@ Console& operator<<(Console& out, CentiCelsius t)
                << " C";
 }
 
-// ---- TemperatureSensor ------------------------------------------------------
+// ---- temperature_sensor
+// ------------------------------------------------------
 
-uint32_t TemperatureSensor::next_random()
+uint32_t temperature_sensor::next_random()
 {
-    rng_state_ ^= rng_state_ << 13;
-    rng_state_ ^= rng_state_ >> 17;
-    rng_state_ ^= rng_state_ << 5;
-    return rng_state_;
+    _rng_state ^= _rng_state << 13;
+    _rng_state ^= _rng_state >> 17;
+    _rng_state ^= _rng_state << 5;
+    return _rng_state;
 }
 
-void TemperatureSensor::sample()
+void temperature_sensor::sample()
 {
-    constexpr int32_t min = 1500;
-    constexpr int32_t max = 3500;
+    constexpr int32_t MIN_CENTI_C = 1500;
+    constexpr int32_t MAX_CENTI_C = 3500;
     const int32_t delta =
         static_cast<int32_t>(next_random() % 51) - 25; // +/- 0.25 C
-    int32_t v = centi_c_ + delta;
-    centi_c_ = v < min ? min : (v > max ? max : v);
-    filter_.add(centi_c_);
+    int32_t v = _centi_c + delta;
+    _centi_c =
+        v < MIN_CENTI_C ? MIN_CENTI_C : (v > MAX_CENTI_C ? MAX_CENTI_C : v);
+    _filter.add(_centi_c);
 }
 
 // ---- Tasks ------------------------------------------------------------------
 
-void HeartbeatTask::run(uint64_t now_ms)
+void heartbeat_task::run(uint64_t now_ms)
 {
-    led_.toggle();
-    if(settings_.verbose)
-        timestamp(out_, now_ms)
-            << "LED " << (led_.is_on() ? "ON" : "OFF") << '\n';
+    _led.toggle();
+    if(_settings.verbose)
+        timestamp(_out, now_ms)
+            << "LED " << (_led.is_on() ? "ON" : "OFF") << '\n';
 }
 
-void SensorTask::run(uint64_t now_ms)
+void sensor_task::run(uint64_t now_ms)
 {
-    sensor_.sample();
-    if(settings_.verbose)
-        timestamp(out_, now_ms) << "temp = " << sensor_.value() << " (avg "
-                                << sensor_.average() << ")\n";
+    _sensor.sample();
+    if(_settings.verbose)
+        timestamp(_out, now_ms) << "temp = " << _sensor.value() << " (avg "
+                                << _sensor.average() << ")\n";
 }
 
-void ConsoleTask::print_help()
+void console_task::print_help()
 {
-    out_ << "Commands:\n"
+    _out << "Commands:\n"
             "  h  help\n"
             "  s  status\n"
             "  d  dump temperature history\n"
@@ -74,30 +76,30 @@ void ConsoleTask::print_help()
             "  q  quit QEMU (semihosting)\n";
 }
 
-void ConsoleTask::print_status(uint64_t now_ms)
+void console_task::print_status(uint64_t now_ms)
 {
-    out_ << "--- status @ " << now_ms << " ms ---\n"
-         << "LED: " << (led_.is_on() ? "on" : "off")
-         << ", temp: " << sensor_.value() << ", avg: " << sensor_.average()
+    _out << "--- status @ " << now_ms << " ms ---\n"
+         << "LED: " << (_led.is_on() ? "on" : "off")
+         << ", temp: " << _sensor.value() << ", avg: " << _sensor.average()
          << '\n';
-    for(const Task* task : scheduler_)
-        out_ << "  task " << task->name() << ": period " << task->period_ms()
-             << " ms, runs " << task->runs() << '\n';
+    for(const task* t : _scheduler)
+        _out << "  task " << t->name() << ": period " << t->period_ms()
+             << " ms, runs " << t->runs() << '\n';
 }
 
-void ConsoleTask::print_history()
+void console_task::print_history()
 {
-    const auto& history = sensor_.history();
-    out_ << "last " << history.size() << " of " << history.capacity()
+    const auto& history = _sensor.history();
+    _out << "last " << history.size() << " of " << history.capacity()
          << " samples (oldest first):\n";
     for(size_t i = 0; i < history.size(); ++i)
-        out_ << "  " << CentiCelsius{history[i]} << '\n';
+        _out << "  " << centi_celsius{history[i]} << '\n';
 }
 
-void ConsoleTask::run(uint64_t now_ms)
+void console_task::run(uint64_t now_ms)
 {
     char c;
-    while(uart_.try_get(c))
+    while(_uart.try_get(c))
     {
         switch(c)
         {
@@ -111,17 +113,17 @@ void ConsoleTask::run(uint64_t now_ms)
             print_history();
             break;
         case 'v':
-            settings_.verbose = !settings_.verbose;
-            out_ << "verbose " << (settings_.verbose ? "on" : "off") << '\n';
+            _settings.verbose = !_settings.verbose;
+            _out << "verbose " << (_settings.verbose ? "on" : "off") << '\n';
             break;
         case 'q':
-            out_ << "bye!\n";
+            _out << "bye!\n";
             hal::semihosting::exit(0);
         case '\r':
         case '\n':
             break;
         default:
-            out_ << "unknown command '" << c << "' (h for help)\n";
+            _out << "unknown command '" << c << "' (h for help)\n";
             break;
         }
     }

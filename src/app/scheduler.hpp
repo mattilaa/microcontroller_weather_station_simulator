@@ -7,74 +7,74 @@ namespace app
 {
 
 // A periodic job. Derive from it and implement run().
-class Task
+class task
 {
 public:
-    constexpr Task(const char* name, uint32_t period_ms)
-        : name_(name), period_ms_(period_ms)
+    constexpr task(const char* name, uint32_t period_ms)
+        : _name(name), _period_ms(period_ms)
     {
     }
 
-    Task(const Task&) = delete;
-    Task& operator=(const Task&) = delete;
+    task(const task&) = delete;
+    task& operator=(const task&) = delete;
 
     virtual void run(uint64_t now_ms) = 0;
 
     const char* name() const
     {
-        return name_;
+        return _name;
     }
 
     uint32_t period_ms() const
     {
-        return period_ms_;
+        return _period_ms;
     }
 
     uint32_t runs() const
     {
-        return runs_;
+        return _runs;
     }
 
 protected:
-    // Non-virtual and protected: tasks are never deleted through a Task*,
+    // Non-virtual and protected: tasks are never deleted through a task*,
     // so no virtual destructor (and no operator delete) is needed.
-    ~Task() = default;
+    ~task() = default;
 
 private:
-    friend class Scheduler;
+    friend class scheduler;
 
-    const char* name_;
-    uint32_t period_ms_;
-    uint64_t next_run_ms_ = 0;
-    uint32_t runs_ = 0;
+    const char* _name;
+    uint32_t _period_ms;
+    uint64_t _next_run_ms = 0;
+    uint32_t _runs = 0;
 };
 
 // Cooperative scheduler over a fixed task table (no dynamic allocation).
-class Scheduler
+class scheduler
 {
 public:
     template <size_t N>
-    explicit constexpr Scheduler(Task* const (&tasks)[N])
-        : tasks_(tasks), count_(N)
+    explicit constexpr scheduler(task* const (&tasks)[N])
+        : _tasks(tasks), _count(N)
     {
     }
 
     // Run every task whose deadline has passed.
     void poll(uint64_t now_ms);
 
-    Task* const* begin() const
+    task* const* begin() const
     {
-        return tasks_;
+        return _tasks;
     }
 
-    Task* const* end() const
+    task* const* end() const
     {
-        return tasks_ + count_;
+        return _tasks + _count;
     }
 
 private:
-    Task* const* tasks_;
-    size_t count_;
+    task* const* _tasks;
+    size_t _count;
 };
 
 } // namespace app

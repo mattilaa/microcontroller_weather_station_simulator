@@ -15,7 +15,7 @@ and built with CMake.
 | `-ffreestanding -nostdinc++ -nostdlib` | no hosted libc/libc++; only compiler headers like `<stdint.h>` |
 | no `operator new`/`delete` defined  | any heap use is a **link error**                            |
 | all globals are `constinit`         | built at compile time, so no constructors run before `main` |
-| virtual functions are fine          | `Task::run()` dispatches through a vtable; no RTTI needed   |
+| virtual functions are fine          | `task::run()` dispatches through a vtable; no RTTI needed   |
 
 Templates are encouraged: they are resolved entirely at compile time and need no
 runtime support. Just watch code size, because every distinct `<T, N>` combination
@@ -23,10 +23,10 @@ generates its own copy of the code (check `firmware.map`).
 
 | Template                          | Where              | Shows                                             |
 |-----------------------------------|--------------------|---------------------------------------------------|
-| `util::RingBuffer<T, N>`          | `src/util/`        | fixed-capacity container, `static_assert` on `N`  |
-| `util::MovingAverage<T, N, Acc>`  | `src/util/`        | C++20 `concept` constraint, O(1) running sum      |
-| `hal::BitField<Shift, Width>`     | `src/hal/mmio.hpp` | register fields checked at compile time (used by the PL011 driver) |
-| `Scheduler(Task* const (&)[N])`   | `src/app/`         | array size deduced from the task table            |
+| `util::ring_buffer<T, N>`          | `src/util/`        | fixed-capacity container, `static_assert` on `N`  |
+| `util::moving_average<T, N, Acc>`  | `src/util/`        | C++20 `concept` constraint, O(1) running sum      |
+| `hal::bit_field<Shift, Width>`     | `src/hal/mmio.hpp` | register fields checked at compile time (used by the PL011 driver) |
+| `scheduler(task* const (&)[N])`   | `src/app/`         | array size deduced from the task table            |
 
 `src/util/static_tests.cpp` holds compile-time unit tests (`static_assert` on
 `constexpr` code). A failing test breaks the build, and the file adds 0 bytes to the image.
@@ -43,7 +43,7 @@ The main loop is a small cooperative scheduler:
 | `sensor`    | 1000 ms | Simulated temperature + moving average of the last 8 samples |
 | `console`   | 10 ms   | Checks the UART for single-key commands      |
 
-All tasks live in a fixed table; the `Scheduler` is given that table at compile time.
+All tasks live in a fixed table; the `scheduler` is given that table at compile time.
 
 Console commands: `h` help, `s` status, `d` dump temperature history, `v` toggle verbose output, `q` quit QEMU.
 
@@ -85,8 +85,8 @@ cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: RAM at 0x40000000, .init_array, stack, .bss
 src/startup.S                       _start: park secondary cores, set up the stack, enable FP, zero .bss, run constructors, call main
 src/main.cpp                        static object graph + main loop
-src/app/scheduler.*                 Task base class (virtual run) + cooperative Scheduler
-src/app/tasks.*                     Led, TemperatureSensor, Heartbeat/Sensor/Console tasks
+src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
+src/app/tasks.*                     led, temperature_sensor, heartbeat/sensor/console tasks
 src/app/console.*                   type-safe `console << ...` output (replaces printf)
 src/hal/mmio.hpp                    Reg32 register wrapper, BitField<Shift, Width>
 src/hal/pl011.*                     PL011 UART driver (0x09000000)

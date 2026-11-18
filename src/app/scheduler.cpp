@@ -3,15 +3,15 @@
 namespace app
 {
 
-void Scheduler::poll(uint64_t now_ms)
+void scheduler::poll(uint64_t now_ms)
 {
-    for(Task* task : *this)
+    for(task* t : *this)
     {
-        if(now_ms >= task->next_run_ms_)
+        if(now_ms >= t->_next_run_ms)
         {
-            task->next_run_ms_ = now_ms + task->period_ms_;
-            ++task->runs_;
-            task->run(now_ms);
+            t->_next_run_ms = now_ms + t->_period_ms;
+            ++t->_runs;
+            t->run(now_ms);
         }
     }
 }

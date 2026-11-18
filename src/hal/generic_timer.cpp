@@ -20,18 +20,18 @@ inline uint64_t read_cntpct()
 }
 } // namespace
 
-void GenericTimer::init()
+void generic_timer::init()
 {
-    ticks_per_ms_ = read_cntfrq() / 1000;
-    start_ticks_ = read_cntpct();
+    _ticks_per_ms = read_cntfrq() / 1000;
+    _start_ticks = read_cntpct();
 }
 
-uint64_t GenericTimer::millis() const
+uint64_t generic_timer::millis() const
 {
-    return (read_cntpct() - start_ticks_) / ticks_per_ms_;
+    return (read_cntpct() - _start_ticks) / _ticks_per_ms;
 }
 
-void GenericTimer::delay_ms(uint32_t ms) const
+void generic_timer::delay_ms(uint32_t ms) const
 {
     const uint64_t end = millis() + ms;
     while(millis() < end)

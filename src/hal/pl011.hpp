@@ -8,25 +8,25 @@ namespace hal
 {
 
 // ARM PrimeCell PL011 UART, polled (no interrupts).
-class Pl011
+class pl011
 {
 public:
-    explicit constexpr Pl011(uintptr_t base) : base_(base) {}
+    explicit constexpr pl011(uintptr_t base) : _base(base) {}
 
     void init() const;
     void put(char c) const;
     bool try_get(char& c) const; // non-blocking
 
 private:
-    constexpr Reg32 reg(uintptr_t offset) const
+    constexpr reg32 reg(uintptr_t offset) const
     {
-        return Reg32{base_ + offset};
+        return reg32{_base + offset};
     }
 
-    uintptr_t base_;
+    uintptr_t _base;
 };
 
 // QEMU virt: UART0 lives at 0x09000000.
-inline constexpr Pl011 uart0{0x0900'0000};
+inline constexpr pl011 uart0{0x0900'0000};
 
 } // namespace hal

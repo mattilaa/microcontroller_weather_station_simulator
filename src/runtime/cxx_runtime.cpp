@@ -15,7 +15,7 @@ namespace
 {
 [[noreturn]] void panic(const char* msg)
 {
-    app::Console out{hal::uart0};
+    app::console out{hal::uart0};
     out << "\n*** PANIC: " << msg << " ***\n";
     hal::semihosting::exit(1);
 }
@@ -30,13 +30,13 @@ extern "C" [[noreturn]] void __cxa_pure_virtual()
 // Run global constructors (.init_array). Called from startup.S before main().
 extern "C"
 {
-    using InitFn = void (*)();
-    extern InitFn __init_array_start[];
-    extern InitFn __init_array_end[];
+    using init_fn = void (*)();
+    extern init_fn __init_array_start[];
+    extern init_fn __init_array_end[];
 
     void __run_global_constructors()
     {
-        for(InitFn* fn = __init_array_start; fn != __init_array_end; ++fn)
+        for(init_fn* fn = __init_array_start; fn != __init_array_end; ++fn)
             (*fn)();
     }
 }

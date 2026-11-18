@@ -9,118 +9,118 @@
 namespace app
 {
 
-struct Settings
+struct settings
 {
     bool verbose = true;
 };
 
 // A virtual LED (stands in for a GPIO pin).
-class Led
+class led
 {
 public:
     void toggle()
     {
-        on_ = !on_;
+        _on = !_on;
     }
 
     bool is_on() const
     {
-        return on_;
+        return _on;
     }
 
 private:
-    bool on_ = false;
+    bool _on = false;
 };
 
 // Temperature in hundredths of a degree, printed as "25.07 C".
-struct CentiCelsius
+struct centi_celsius
 {
     int32_t value;
 };
 
-Console& operator<<(Console& out, CentiCelsius t);
+console& operator<<(console& out, centi_celsius t);
 
 // Simulated temperature sensor: random walk with xorshift32 noise, smoothed
 // by a moving average over the last HISTORY samples.
-class TemperatureSensor
+class temperature_sensor
 {
 public:
     static constexpr size_t HISTORY = 8;
-    using Filter = util::MovingAverage<int32_t, HISTORY, int64_t>;
+    using filter = util::moving_average<int32_t, HISTORY, int64_t>;
 
     void sample();
 
-    CentiCelsius value() const
+    centi_celsius value() const
     {
-        return {centi_c_};
+        return {_centi_c};
     }
 
-    CentiCelsius average() const
+    centi_celsius average() const
     {
-        return {filter_.average()};
+        return {_filter.average()};
     }
 
-    const util::RingBuffer<int32_t, HISTORY>& history() const
+    const util::ring_buffer<int32_t, HISTORY>& history() const
     {
-        return filter_.samples();
+        return _filter.samples();
     }
 
 private:
     uint32_t next_random();
 
-    int32_t centi_c_ = 2500;
-    uint32_t rng_state_ = 0x1234'5678u;
-    Filter filter_;
+    int32_t _centi_c = 2500;
+    uint32_t _rng_state = 0x1234'5678u;
+    filter _filter;
 };
 
-class HeartbeatTask final : public Task
+class heartbeat_task final : public task
 {
 public:
-    constexpr HeartbeatTask(Led& led, Console& out, const Settings& settings)
-        : Task("heartbeat", 500), led_(led), out_(out), settings_(settings)
+    constexpr heartbeat_task(led& led, console& out, const settings& settings)
+        : task("heartbeat", 500), _led(led), _out(out), _settings(settings)
     {
     }
 
     void run(uint64_t now_ms) override;
 
 private:
-    Led& led_;
-    Console& out_;
-    const Settings& settings_;
+    led& _led;
+    console& _out;
+    const settings& _settings;
 };
 
-class SensorTask final : public Task
+class sensor_task final : public task
 {
 public:
-    constexpr SensorTask(
-        TemperatureSensor& sensor,
-        Console& out,
-        const Settings& settings)
-        : Task("sensor", 1000), sensor_(sensor), out_(out), settings_(settings)
+    constexpr sensor_task(
+        temperature_sensor& sensor,
+        console& out,
+        const settings& settings)
+        : task("sensor", 1000), _sensor(sensor), _out(out), _settings(settings)
     {
     }
 
     void run(uint64_t now_ms) override;
 
 private:
-    TemperatureSensor& sensor_;
-    Console& out_;
-    const Settings& settings_;
+    temperature_sensor& _sensor;
+    console& _out;
+    const settings& _settings;
 };
 
 // Handles single-key commands from the UART.
-class ConsoleTask final : public Task
+class console_task final : public task
 {
 public:
-    constexpr ConsoleTask(
-        const hal::Pl011& uart,
-        Console& out,
-        Settings& settings,
-        const Led& led,
-        const TemperatureSensor& sensor,
-        const Scheduler& scheduler)
-        : Task("console", 10), uart_(uart), out_(out), settings_(settings),
-          led_(led), sensor_(sensor), scheduler_(scheduler)
+    constexpr console_task(
+        const hal::pl011& uart,
+        console& out,
+        settings& settings,
+        const led& led,
+        const temperature_sensor& sensor,
+        const scheduler& scheduler)
+        : task("console", 10), _uart(uart), _out(out), _settings(settings),
+          _led(led), _sensor(sensor), _scheduler(scheduler)
     {
     }
 
@@ -131,12 +131,12 @@ private:
     void print_status(uint64_t now_ms);
     void print_history();
 
-    const hal::Pl011& uart_;
-    Console& out_;
-    Settings& settings_;
-    const Led& led_;
-    const TemperatureSensor& sensor_;
-    const Scheduler& scheduler_;
+    const hal::pl011& _uart;
+    console& _out;
+    settings& _settings;
+    const led& _led;
+    const temperature_sensor& _sensor;
+    const scheduler& _scheduler;
 };
 
 } // namespace app

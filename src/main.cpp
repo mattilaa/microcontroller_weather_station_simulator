@@ -16,23 +16,28 @@ namespace
 
 using namespace app;
 
-extern Scheduler
-    scheduler; // defined below; ConsoleTask only stores a reference
+extern scheduler
+    task_scheduler; // defined below; console_task keeps a reference
 
-constinit hal::GenericTimer timer;
-constinit Console console{hal::uart0};
-constinit Settings settings;
-constinit Led led;
-constinit TemperatureSensor sensor;
+constinit hal::generic_timer timer;
+constinit console serial_console{hal::uart0};
+constinit settings app_settings;
+constinit led status_led;
+constinit temperature_sensor temp_sensor;
 
-constinit HeartbeatTask heartbeat_task{led, console, settings};
-constinit SensorTask sensor_task{sensor, console, settings};
-constinit ConsoleTask
-    console_task{hal::uart0, console, settings, led, sensor, scheduler};
+constinit heartbeat_task heartbeat{status_led, serial_console, app_settings};
+constinit sensor_task sensor_reader{temp_sensor, serial_console, app_settings};
+constinit console_task command_shell{
+    hal::uart0,
+    serial_console,
+    app_settings,
+    status_led,
+    temp_sensor,
+    task_scheduler};
 
-constinit Task* const task_table[] =
-    {&heartbeat_task, &sensor_task, &console_task};
-constinit Scheduler scheduler{task_table};
+constinit task* const task_table[] =
+    {&heartbeat, &sensor_reader, &command_shell};
+constinit scheduler task_scheduler{task_table};
 
 unsigned current_el()
 {
@@ -50,13 +55,14 @@ extern "C" [[noreturn]] void main()
     hal::uart0.init();
     timer.init();
 
-    console << "\n=== bare-metal AArch64 C++ on QEMU virt ===\n"
-            << "running at EL" << current_el() << ", no operating system\n";
-    console_task.print_help();
+    serial_console << "\n=== bare-metal AArch64 C++ on QEMU virt ===\n"
+                   << "running at EL" << current_el()
+                   << ", no operating system\n";
+    command_shell.print_help();
 
     for(;;)
     {
-        scheduler.poll(timer.millis());
+        task_scheduler.poll(timer.millis());
         // A real MCU would sleep here (wfi) until the next interrupt.
     }
 }

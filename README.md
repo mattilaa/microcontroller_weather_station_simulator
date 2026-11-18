@@ -1,71 +1,18 @@
 [![CI](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml/badge.svg)](https://github.com/mattilaa/microcontroller_example/actions/workflows/ci.yml)
 
-# Microcontroller weather station example using QEMU
+# Microcontroller weather station simulator using QEMU
 
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style
 main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C++20
 and built with CMake.
 
-It's a small simulated **weather station**: temperature, humidity, wind speed, wind
-direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the
-UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
+It simulates temperature, humidity, wind speed, wind direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
 the Finnish Meteorological Institute's forecast chart:
 
 ![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
 **Just the commands** for setup, running and testing: [howto.txt](howto.txt).
-
-## Embedded C++ subset
-
-| Flag / rule                         | Why                                                         |
-|-------------------------------------|-------------------------------------------------------------|
-| `-fno-exceptions`                   | no unwinder, no hidden code paths or tables                 |
-| `-fno-rtti`                         | no `typeid`/`dynamic_cast`, no typeinfo data                |
-| `-fno-threadsafe-statics`           | no lock around function-local statics                       |
-| `-fno-use-cxa-atexit`               | no destructor registry; global objects are never destroyed  |
-| `-ffreestanding -nostdinc++ -nostdlib` | no hosted libc/libc++; only compiler headers like `<stdint.h>` |
-| no `operator new`/`delete` defined  | any heap use is a **link error**                            |
-| all globals are `constinit`         | built at compile time, so no constructors run before `main` |
-| `-mgeneral-regs-only`               | no FP/SIMD at all; quantities are fixed-point integers      |
-| `-mstrict-align`                    | the MMU is off, so all memory is Device memory, where unaligned accesses fault |
-| virtual functions are fine          | `task::run()` dispatches through a vtable; no RTTI needed   |
-
-Templates are encouraged: they are resolved entirely at compile time and need no
-runtime support. Just watch code size, because every distinct `<T, N>` combination
-generates its own copy of the code (check `firmware.map`).
-
-| Template                          | Where              | Shows                                             |
-|-----------------------------------|--------------------|---------------------------------------------------|
-| `util::ring_buffer<T, N>`          | `src/util/`        | fixed-capacity container, `static_assert` on `N`  |
-| `util::moving_average<T, N, Acc>`  | `src/util/`        | C++20 `concept` constraint, O(1) running sum      |
-| `hal::bit_field<Shift, Width>`     | `src/hal/mmio.hpp` | register fields checked at compile time (used by the PL011 driver) |
-| `scheduler(task* const (&)[N])`   | `src/app/`         | array size deduced from the task table            |
-| `hal::virtqueue<N>`               | `src/hal/virtio_mmio.hpp` | virtio ring layout for any queue size      |
-| `util::span<T>`                   | `src/util/`        | buffer views for the network code                 |
-
-`src/util/static_tests.cpp` holds compile-time unit tests (`static_assert` on
-`constexpr` code). A failing test breaks the build, and the file adds 0 bytes to the image.
-
-`src/runtime/cxx_runtime.cpp` holds the little runtime support that's left:
-`__cxa_pure_virtual` (panics) and a loop that calls `.init_array` constructors. The
-startup code still runs that loop, in case you add a global that isn't `constinit`.
-`src/runtime/libc_support.cpp` provides `memcpy`/`memmove`/`memset`/`memcmp`, which
-compilers may call on their own even in freestanding code.
-
-The main loop is a small cooperative scheduler:
-
-| Task        | Period  | What it does                                 |
-|-------------|---------|----------------------------------------------|
-| `weather`   | 1000 ms | Samples all five sensors; logs a record every 10 simulated minutes |
-| `network`   | 5 ms    | Polls the virtio-net device and answers ARP, ping and UDP |
-| `console`   | 10 ms   | Checks the UART for single-key commands      |
-
-All tasks live in a fixed table; the `scheduler` is given that table at compile time.
-
-Console commands: `h` help, `s` status, `w` weather report, `d` dump the last 8 records,
-`n` network status, `+`/`-` faster/slower simulation, `c` next weather scenario, `v` toggle verbose output, `q` quit
-QEMU.
 
 ## Real time and the speed switch
 
@@ -103,35 +50,6 @@ responsive.
 At 72000× the station logs 120 records per second, and its 256-record log wraps in about
 2 seconds. `record` picks its import interval from the speed (0.53 s at 72000×), so it
 keeps up. `fetch`, and `record` with a too-long `--interval`, warn when records are lost.
-
-## Memory: 32 KiB of RAM, code in flash
-
-The firmware is laid out like a microcontroller with **32 KiB of RAM**:
-- **Flash:** code, constants and the initial values of `.data`.
-- **RAM:** only `.data`, `.bss` and the stack.
-- **Boot:** `startup.S` copies `.data` from flash to RAM, as on a real chip. QEMU `virt` has
-  no flash for a bare `-kernel` image, so the flash region is the start of QEMU's RAM, used
-  as read-only image memory.
-- **Enforced by the linker:** a build that needs more RAM fails with
-  `section '.bss' will not fit in region 'RAM'`. Every link prints the use:
-
-```
-Memory region         Used Size  Region Size  %age Used
-           FLASH:       37824 B         1 MB      3.61%
-             RAM:       28912 B        32 KB     88.23%
-```
-
-| RAM user | Bytes |
-|----------|-------|
-| Ethernet: 4 receive + 2 transmit buffers of 1526 B, plus rings | 9 400 |
-| Reading log: 256 records, packed into 44 B each | 11 290 |
-| IP stack frame copies (receive + transmit), in `.data` | 3 090 |
-| Weather model, sensors, tasks, console | ~700 |
-| Stack | 4 096 |
-
-The stack is filled with a pattern at boot, and the console's `s` status shows the peak use
-since then. After the deepest code paths (console reports, UDP log pages, a 1400-byte ping),
-it peaks at about 870 of 4096 bytes. A test checks it stays under half.
 
 ## Weather scenarios
 

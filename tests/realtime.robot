@@ -24,6 +24,20 @@ Reads The Speed Switch From QEMU
     ${seconds}=    Seconds Of Samples    ${output}
     Differences Should Be Within    ${seconds}    3500    3800
 
+Fastest Speed Simulates Twenty Hours Per Second
+    Start Firmware With Network    speed=72000
+    Wait For Output    simulation speed: 72000x    timeout=${BOOT_TIMEOUT}
+    ${output}=    Collect Output    3.2s
+    ${seconds}=    Seconds Of Samples    ${output}
+    # Sample times are times of day: 20 hours later wraps past midnight.
+    ${steps}=    Evaluate    [(b - a) % 86400 for a, b in zip($seconds, $seconds[1:])]
+    Should Not Be Empty    ${steps}
+    FOR    ${step}    IN    @{steps}
+        Should Be True    70000 <= ${step} <= 76000    msg=Simulated ${step} s per update: ${steps}
+    END
+    ${reply}=    Send UDP Command    ping
+    Should Be Equal    ${reply}    pong
+
 No Record Before Ten Simulated Minutes
     Boot Firmware    speed=${NONE}
     ${page}=    Send UDP Command    log 0
@@ -41,13 +55,22 @@ Speed Can Be Changed Over UDP
     Differences Should Be Within    ${seconds}    55    70
     ${reply}=    Send UDP Command    speed 0
     Should Start With    ${reply}    error: expected speed
-    ${reply}=    Send UDP Command    speed 3601
+    ${reply}=    Send UDP Command    speed 72000
+    Should Be Equal    ${reply}    ok speed 72000
+    ${reply}=    Send UDP Command    speed 72001
     Should Start With    ${reply}    error: expected speed
 
 Console Keys Change The Speed
     Boot Firmware    speed=${NONE}
     Press Key And Expect    +    speed 10x
     Press Key And Expect    +    speed 60x
+    Press Key And Expect    +    speed 600x
+    Press Key And Expect    +    speed 3600x
+    Press Key And Expect    +    speed 72000x
+    Press Key And Expect    +    speed 72000x    # already the fastest
+    Press Key And Expect    -    speed 3600x
+    Press Key And Expect    -    speed 600x
+    Press Key And Expect    -    speed 60x
     Press Key And Expect    -    speed 10x
     Press Key And Expect    -    speed 1x
     Press Key And Expect    -    speed 1x    # already the slowest

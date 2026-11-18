@@ -15,6 +15,7 @@ RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
 RECORD AND PLOT LIVE MEASUREMENTS (own QEMU; Ctrl-C stops; -> weather.png)
   python tools/weather_tool.py record                           # real time
   python tools/weather_tool.py record --speed 3600 --hours 48   # 48 h in < 1 min
+  python tools/weather_tool.py record --speed 72000 --hours 72 --interval 0.5   # ~5 s
   python tools/weather_tool.py record --speed 600 --live        # live window
 
 PLOT FROM THE RUNNING FIRMWARE ('run' target above)

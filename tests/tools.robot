@@ -45,6 +45,23 @@ Record Collects Live Measurements At A Chosen Speed
     Should Be True    ${rows} >= 36    msg=Only ${rows} records in six simulated hours
     PNG File Should Be Valid    ${png}
 
+Record Keeps Up At The Fastest Speed
+    [Documentation]    72000x logs 120 records per second; importing every half
+    ...                second must not lose any before the firmware's log wraps.
+    ${csv}=    Set Variable    ${OUTPUT DIR}/fast_weather.csv
+    ${result}=    Run Process    ${PYTHON}    ${TOOL}    record
+    ...    --firmware    ${FIRMWARE}    --qemu    ${QEMU}    --speed    72000
+    ...    --hours    48    --interval    0.5    --csv    ${csv}
+    ...    --out    ${OUTPUT DIR}/fast_weather.png    timeout=120s    stderr=STDOUT
+    Should Be Equal As Integers    ${result.rc}    0    msg=${result.stdout}
+    Should Not Contain    ${result.stdout}    overwritten
+    ${rows}=    Count CSV Rows    ${csv}
+    Should Be True    ${rows} >= 288    msg=Only ${rows} records in 48 simulated hours
+    ${text}=    Get File    ${csv}
+    ${sequences}=    Evaluate    [int(line.split(",")[0]) for line in $text.splitlines()[1:] if line.strip()]
+    ${consecutive}=    Evaluate    $sequences == list(range($sequences[0], $sequences[0] + len($sequences)))
+    Should Be True    ${consecutive}    msg=Records missing from the import
+
 Plot Works On An Imported CSV
     ${csv}=    Set Variable    ${OUTPUT DIR}/demo_weather.csv
     ${png}=    Set Variable    ${OUTPUT DIR}/replot.png

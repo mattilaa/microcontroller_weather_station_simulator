@@ -78,24 +78,31 @@ circle) and the rain that fell in it, and is stamped with the interval's end tim
 06:10 record covers 06:00–06:10.
 
 To avoid waiting 48 hours for 48 hours of data, set the **speed switch** to any value from
-1 to 3600 (simulated seconds per real second):
+1 to 72000 (simulated seconds per real second):
 
 | Speed | One real second is | 48 simulated hours take |
 |-------|--------------------|-------------------------|
 | 1 (default) | 1 s (real time) | 48 hours |
 | 600 | 10 minutes | under 5 minutes |
 | 3600 | 1 hour | under a minute |
+| 72000 | 20 hours | under 3 seconds |
 
 - **QEMU command line:** `-fw_cfg name=opt/weather/speed,string=600`. The firmware reads
   it at boot through QEMU's fw_cfg device.
 - **CMake `run` target:** `cmake -B build -DSIM_SPEED=600`.
 - **While running:** the UDP command `speed 600`, or the console keys `+`/`-` (1, 10, 60,
-  600, 3600).
+  600, 3600, 72000).
 - **Plotting tool:** `record --speed 600`.
 
 The weather model steps once per simulated minute at every speed, so the weather
-behaves the same at 1× and at 3600×. Every sample is still taken from the model
-(at most one simulated minute apart).
+behaves the same at 1× and at 72000×. Every sample is still taken from the model
+(at most one simulated minute apart). At 72000× each one-second update simulates 1200
+minutes, which takes the firmware a few milliseconds, so the console and network stay
+responsive.
+
+At 72000× the station logs 120 records per second, and its 512-record log wraps in about
+4 seconds. Import at least every couple of seconds (`record --interval 0.5`), or records
+are lost; `fetch` and `record` warn when that happens.
 
 ## Weather simulation
 
@@ -126,7 +133,7 @@ listens on port 5000; each datagram is one command:
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
 | `log [sequence]` | one page (up to 20 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
-| `speed [N]` | shows or sets the simulation speed (1…3600) |
+| `speed [N]` | shows or sets the simulation speed (1…72000) |
 | `ping` | `pong` |
 | `help` | the list of commands |
 
@@ -157,6 +164,7 @@ With the [virtual environment](#python-virtual-environment) set up and active:
 # Record live: starts its own QEMU, imports records as they are measured and keeps
 # weather.png up to date (Ctrl-C stops). --speed is the speed switch.
 python tools/weather_tool.py record --speed 3600 --hours 48     # 48 h in under a minute
+python tools/weather_tool.py record --speed 72000 --hours 72 --interval 0.5   # 72 h in ~5 s
 python tools/weather_tool.py record --speed 600 --live          # also a live chart window
 python tools/weather_tool.py record                             # real time
 
@@ -241,8 +249,8 @@ UART and over Ethernet:
 | `tasks.robot` | sensor timing, simulated clock rate |
 | `console.robot` | every console command, history capping, averages, the quit exit code |
 | `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, daily rain totals, the log and fast-forward |
-| `realtime.robot` | real time by default, the QEMU speed switch, changing speed over UDP and from the console, records as means of their samples |
-| `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), and replotting a CSV |
+| `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
+| `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
 | `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, size budget |
 

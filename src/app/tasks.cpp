@@ -113,7 +113,7 @@ void console_task::print_history()
 
 void console_task::change_speed(bool faster)
 {
-    static constexpr uint32_t SPEEDS[] = {1, 10, 60, 600, 3600};
+    static constexpr uint32_t SPEEDS[] = {1, 10, 60, 600, 3600, 72'000};
     constexpr size_t COUNT = sizeof(SPEEDS) / sizeof(SPEEDS[0]);
     size_t i = 0;
     while(i + 1 < COUNT && SPEEDS[i] < _station.speed())

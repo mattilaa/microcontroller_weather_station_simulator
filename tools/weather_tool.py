@@ -6,12 +6,13 @@ simulated minutes (means of the samples, and the rain in the interval). It
 serves that log over its UDP service (port 5000 in the guest; the CMake `run`
 target forwards host port 5555 to it). Simulated time runs at real time by
 default; the speed switch makes it faster (600 = ten simulated minutes per
-second, 3600 = an hour per second).
+second, 3600 = an hour per second, 72000 = twenty hours per second).
 
     # Record live: own QEMU, collect records as they are measured, keep
     # updating the chart (Ctrl-C stops). 48 simulated hours at 3600x take
     # 48 seconds; at 1x (real time) they take 48 hours.
     python tools/weather_tool.py record --speed 3600 --hours 48
+    python tools/weather_tool.py record --speed 72000 --hours 72 --interval 0.5   # ~4 s
     python tools/weather_tool.py record --speed 600 --live      # live window
 
     # Against an already running firmware (cmake --build build --target run):
@@ -88,6 +89,13 @@ class WeatherClient:
             if not header.startswith("log "):
                 raise ValueError(f"Unexpected reply: {header}")
             fields = dict(item.split("=") for item in header.split()[1:])
+            if rows and int(rows[0].split(",")[0]) > next_sequence:
+                # The firmware keeps 512 records; at very high speeds it can
+                # overwrite some before they are imported.
+                missed = int(rows[0].split(",")[0]) - next_sequence
+                print(f"warning: {missed} records were overwritten before import "
+                      "(import more often, e.g. a smaller --interval, or lower the speed)",
+                      file=sys.stderr)
             for row in rows:
                 yield dict(zip(COLUMNS, row.split(",")))
             next_sequence = int(fields["next"])
@@ -474,7 +482,7 @@ def main(argv=None):
     p_plot.add_argument("--hours", type=int, default=24, help="plot the last N hours (0 = all)")
 
     p_rec = sub.add_parser("record", help="collect live measurements and keep the chart up to date")
-    p_rec.add_argument("--speed", type=int, help="simulation speed: 1 = real time (default), up to 3600")
+    p_rec.add_argument("--speed", type=int, help="simulation speed: 1 = real time (default), up to 72000")
     p_rec.add_argument("--hours", type=int, default=0, help="simulated hours to record (0 = until Ctrl-C)")
     p_rec.add_argument("--interval", type=float, default=2.0, help="real seconds between imports")
     p_rec.add_argument("--port", type=int, help="use an already running firmware on this host UDP port")

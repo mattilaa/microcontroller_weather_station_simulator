@@ -109,7 +109,9 @@ private:
 // that fell in the interval. A record's time is the end of its interval.
 //
 // Simulated time runs `speed` times faster than real time: 1 is real time,
-// 600 makes every real second ten simulated minutes.
+// 600 makes every real second ten simulated minutes, 72000 twenty hours.
+// At 72000 one update simulates 1200 minutes (1200 model steps and samples,
+// 120 records), which takes the firmware a few milliseconds.
 class weather_station
 {
 public:
@@ -117,7 +119,7 @@ public:
     static constexpr uint32_t MAX_SAMPLE_SECONDS = 60;
     static constexpr int32_t RAIN_GAUGE_TIP = 20; // 0.2 mm per bucket tip
     static constexpr uint32_t DEFAULT_SPEED = 1;  // real time
-    static constexpr uint32_t MAX_SPEED = 3600;   // an hour per second
+    static constexpr uint32_t MAX_SPEED = 72'000; // 20 hours per second
 
     explicit constexpr weather_station(weather_log& log) : _log(log) {}
 

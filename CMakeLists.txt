@@ -97,8 +97,8 @@ if(QEMU)
     # -nic none drops the default PCI NIC (it needs efi-virtio.rom).
     set(QEMU_UDP_PORT 5555 CACHE STRING "Host UDP port forwarded to the firmware")
     # Simulation speed switch: 1 = real time, 600 = ten simulated minutes per
-    # second (max 3600). cmake -B build -DSIM_SPEED=600
-    set(SIM_SPEED 1 CACHE STRING "Simulated seconds per real second (1..3600)")
+    # second (max 72000). cmake -B build -DSIM_SPEED=600
+    set(SIM_SPEED 1 CACHE STRING "Simulated seconds per real second (1..72000)")
     set(QEMU_ARGS -M virt -cpu cortex-a53 -m 128M -nographic -semihosting
                   -nic none
                   -global virtio-mmio.force-legacy=false

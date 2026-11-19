@@ -9,7 +9,7 @@ Test Teardown       Shut Down Firmware
 *** Test Cases ***
 Prints Boot Banner
     Start Firmware With Network
-    Wait For Output    === bare-metal AArch64 C\\+\\+ on QEMU virt ===    timeout=${BOOT_TIMEOUT}
+    Wait For Output    === bare-metal AArch64 MLang on QEMU virt ===    timeout=${BOOT_TIMEOUT}
 
 Runs At EL1 Without An Operating System
     Start Firmware With Network

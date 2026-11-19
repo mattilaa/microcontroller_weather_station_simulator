@@ -1,11 +1,100 @@
-// Root module compiled into the firmware; imported modules are emitted once.
+// Complete firmware application. startup.S establishes RAM and the stack first.
+mod hardware;
+use hardware::*;
+mod streams;
+use streams::*;
+mod runtime;
+use runtime::*;
+mod memory;
+use memory::*;
+mod weather_station;
+use weather_station::*;
+mod weather_model;
+use weather_model::*;
+mod scenarios;
+use scenarios::*;
 mod service;
-mod console;
 use service::*;
+mod console;
 use console::*;
 mod boot;
 use boot::*;
 mod scheduler;
 use scheduler::*;
-mod log;
-use log::*;
+mod network;
+use network::*;
+mod virtio_net;
+use virtio_net::*;
+mod status;
+use status::*;
+mod text;
+use text::*;
+var station: Station;
+var verbose: bool = true;
+
+fn initialize_station() -> void {
+    unsafe {
+        station._model = Model {
+            _scenario: app_scenario_at(0u32),
+            _scenario_start: 21600u64, _sim_seconds: 21600u64,
+            _rng: 195948557u32,
+            _cloud_trend: 350000, _cloud: 350000, _sustained_wind: 300000,
+            _prevailing: 2250000,
+            _cirrus_rng: 12678405u32, _cirrus: 250000,
+            _level_rng: 1998357u32, _cirrus_level: 270000, _altostratus_level: 580000,
+            _pressure_rng: 195094501u32, _pressure: 10132000,
+            _cell_rng: 3457244909u32, _cell: 450000,
+            _gust_rng: 1616375821u32, _gust_factor: 1250
+        };
+        station._thermometer = Sensor { _noise_sigma: 5, _resolution: 1, _min: -4000, _max: 6000, _rng: 2119630849u32 };
+        station._hygrometer = Sensor { _noise_sigma: 30, _resolution: 10, _min: 0, _max: 10000, _rng: 2119630850u32 };
+        station._anemometer = Sensor { _noise_sigma: 5, _resolution: 10, _min: 0, _max: 6000, _rng: 2119630851u32 };
+        station._wind_vane = Sensor { _noise_sigma: 2, _resolution: 1, _min: -720, _max: 1080, _rng: 2119630852u32 };
+        station._sky_imager = Sensor { _noise_sigma: 2, _resolution: 1, _min: 0, _max: 100, _rng: 2119630853u32 };
+        station._cloud_sensor = Sensor { _noise_sigma: 1, _resolution: 1, _min: 0, _max: 100, _rng: 2119630854u32 };
+        station._ceilometer = Sensor { _noise_sigma: 2, _resolution: 1, _min: 150, _max: 1100, _rng: 2119630855u32 };
+        station._barometer = Sensor { _noise_sigma: 1, _resolution: 1, _min: 8700, _max: 10850, _rng: 2119630856u32 };
+        station._speed = 1;
+        station._log = log_handle();
+    }
+}
+
+pub fn main() -> i32 {
+    unsafe {
+        uart_init();
+        timer_init();
+        initialize_station();
+        let out: ptr<u8> = console_output();
+        write_text(out, "\n=== bare-metal AArch64 MLang on QEMU virt ===\nrunning at EL");
+        write_uint(out, u64(current_el()), 10u64, 0u32, 32u32);
+        write_text(out, ", no operating system\n");
+        var speed: fixedarray<u8, 12>;
+        let speed_size: i32 = fw_read_file("opt/weather/speed", &mut speed[0], 12u64);
+        apply_speed_switch(&mut station, out, &mut speed[0], speed_size);
+        var scenario: fixedarray<u8, 32>;
+        let scenario_size: i32 = fw_read_file("opt/weather/scenario", &mut scenario[0], 32u64);
+        apply_scenario_switch(&mut station, out, &mut scenario[0], scenario_size);
+        if nic_init() == 1u32 { network_announce(); }
+        app_print_network(out);
+        print_help(out);
+        while true {
+            let now: u64 = timer_millis();
+            var i: u64 = 0;
+            while i < 3 {
+                let task: ptr<TaskState> = task_at(i);
+                if task_ready(task, now) {
+                    if i == 0 { weather_task_run(&mut station, out, verbose, now); }
+                    else if i == 1 { if nic_state() == 1u32 { network_poll(&mut station); } }
+                    else {
+                        var key: i32 = uart_get();
+                        while key >= 0 {
+                            console_command(&mut station, out, &mut verbose, out, now, u32(key));
+                            key = uart_get();
+                        }
+                    }
+                }
+                i += 1;
+            }
+        }
+    }
+}

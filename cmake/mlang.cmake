@@ -38,7 +38,18 @@ if(NOT MLANG_VERSION_RESULT EQUAL 0)
     message(FATAL_ERROR "Cannot run the MLang host compiler; run ./bootstrap.sh")
 endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-find_program(MLANG_CLANG clang HINTS ${LLVM_HINTS} REQUIRED)
+# Consume IR with the same Clang selected by the host compiler's LLVM build.
+# A distribution's default clang can be older than the LLVM backend in MLang.
+if(EXISTS "${MLANG_ROOT}/build/CMakeCache.txt")
+    file(STRINGS "${MLANG_ROOT}/build/CMakeCache.txt" MLANG_IR_COMPILER_LINE
+        REGEX "^MLANG_CLANGXX_EXE:[^=]+=")
+endif()
+if(MLANG_IR_COMPILER_LINE)
+    string(REGEX REPLACE "^[^=]*=" "" MLANG_CLANG "${MLANG_IR_COMPILER_LINE}")
+else()
+    find_program(MLANG_CLANG clang HINTS ${LLVM_HINTS} REQUIRED)
+endif()
+message(STATUS "MLang IR compiler: ${MLANG_CLANG}")
 file(GLOB MLANG_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/mlang/*.mla")
 set(MLANG_OBJECT "${CMAKE_CURRENT_BINARY_DIR}/weather_mlang.o")
 add_custom_command(OUTPUT "${MLANG_OBJECT}"

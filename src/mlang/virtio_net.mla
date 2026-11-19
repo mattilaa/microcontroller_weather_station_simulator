@@ -1,0 +1,167 @@
+// Polled virtio 1.x MMIO NIC. Separate aligned globals keep every DMA layout
+// explicit and zero-initialized in .bss; no heap, vtables, or constructors.
+mod hardware;
+use hardware::*;
+mod net_bytes;
+use net_bytes::*;
+pub struct NicState {
+    var base: u64;
+    var state: u32;
+    var mac: fixedarray<u8, 6>;
+    var rx_seen: u16;
+    var tx_next: u16;
+    var tx_seen: u16;
+    var frames_sent: u32;
+    var frames_received: u32;
+};
+var nic: NicState;
+#[align(16)] var rx_queue: fixedarray<u8, 128>;
+#[align(16)] var tx_queue: fixedarray<u8, 80>;
+#[align(16)] var rx_buffers: fixedarray<u8, 6104>;
+#[align(16)] var tx_buffers: fixedarray<u8, 3052>;
+fn rx_ring() -> ptr<u8> { return &mut rx_queue[0]; }
+fn tx_ring() -> ptr<u8> { return &mut tx_queue[0]; }
+fn rx_buffer(index: u16) -> ptr<u8> { return &mut rx_buffers[u64(index) * 1526u64]; }
+fn tx_buffer(index: u16) -> ptr<u8> { return &mut tx_buffers[u64(index) * 1526u64]; }
+pub fn nic_state() -> u32 { return nic.state; }
+pub fn nic_mac() -> ptr<u8> { return &mut nic.mac[0]; }
+pub fn nic_status_text() -> str8 {
+    if nic.state == 0 { return "not initialized"; }
+    if nic.state == 1 { return "ready"; }
+    if nic.state == 2 { return "no virtio-net device"; }
+    if nic.state == 3 { return "legacy virtio-mmio device (use -global virtio-mmio.force-legacy=false)"; }
+    if nic.state == 4 { return "device lacks required features"; }
+    return "queue setup failed";
+}
+fn queue_read16(base: ptr<u8>, offset: u64) -> u16 {
+    unsafe { return volatile_load(ptr_from_address<u16>(ptr_address(base) + offset)); }
+}
+fn queue_read32(base: ptr<u8>, offset: u64) -> u32 {
+    unsafe { return volatile_load(ptr_from_address<u32>(ptr_address(base) + offset)); }
+}
+fn queue_write16(base: ptr<u8>, offset: u64, value: u16) -> void {
+    unsafe { volatile_store(ptr_from_address<u16>(ptr_address(base) + offset), value); }
+}
+fn queue_write32(base: ptr<u8>, offset: u64, value: u32) -> void {
+    unsafe { volatile_store(ptr_from_address<u32>(ptr_address(base) + offset), value); }
+}
+fn queue_write64(base: ptr<u8>, offset: u64, value: u64) -> void {
+    unsafe { volatile_store(ptr_from_address<u64>(ptr_address(base) + offset), value); }
+}
+fn transport_write(offset: u64, value: u32) -> void { mmio_write32(nic.base + offset, value); }
+fn transport_read(offset: u64) -> u32 { return mmio32(nic.base + offset); }
+fn transport_status(bits: u32) -> void { transport_write(112u64, transport_read(112u64) | bits); }
+fn transport_address(offset: u64, address: u64) -> void {
+    transport_write(offset, u32(address));
+    transport_write(offset + 4u64, u32(address >> 32));
+}
+fn setup_queue(index: u32, count: u32, memory: ptr<u8>, avail: u64, used: u64) -> bool {
+    unsafe {
+        transport_write(48u64, index);
+        if transport_read(68u64) != 0 || transport_read(52u64) < count { return false; }
+        transport_write(56u64, count);
+        transport_address(128u64, ptr_address(memory));
+        transport_address(144u64, ptr_address(memory) + avail);
+        transport_address(160u64, ptr_address(memory) + used);
+        transport_write(68u64, 1u32);
+        return true;
+    }
+}
+pub fn nic_init() -> u32 {
+    unsafe {
+        nic.base = 0;
+        var slot: u64 = 0;
+        while slot < 32 {
+            let base: u64 = 167772160u64 + slot * 512u64;
+            if mmio32(base) == 1953655158u32 && mmio32(base + 8u64) == 1u32 { nic.base = base; break; }
+            slot += 1;
+        }
+        if nic.base == 0 { nic.state = 2; return nic.state; }
+        if transport_read(4u64) != 2 { nic.state = 3; return nic.state; }
+        transport_write(112u64, 0u32);
+        transport_status(1u32);
+        transport_status(2u32);
+        transport_write(20u64, 0u32);
+        let low: u32 = transport_read(16u64) & 32u32;
+        transport_write(20u64, 1u32);
+        let high: u32 = transport_read(16u64) & 1u32;
+        transport_write(36u64, 0u32);
+        transport_write(32u64, low);
+        transport_write(36u64, 1u32);
+        transport_write(32u64, high);
+        if high == 0 { transport_status(128u32); nic.state = 4; return nic.state; }
+        transport_status(8u32);
+        if (transport_read(112u64) & 8u32) == 0 { transport_status(128u32); nic.state = 4; return nic.state; }
+        var i: u16 = 0;
+        while i < 4u16 {
+            queue_write64(rx_ring(), u64(i) * 16u64, ptr_address(rx_buffer(i)));
+            queue_write32(rx_ring(), u64(i) * 16u64 + 8u64, 1526u32);
+            queue_write16(rx_ring(), u64(i) * 16u64 + 12u64, 2u16);
+            queue_write16(rx_ring(), 68u64 + u64(i) * 2u64, i);
+            i += 1;
+        }
+        queue_write16(rx_ring(), 66u64, 4u16);
+        if !setup_queue(0u32, 4u32, rx_ring(), 64u64, 80u64) || !setup_queue(1u32, 2u32, tx_ring(), 32u64, 44u64) {
+            transport_status(128u32); nic.state = 5; return nic.state;
+        }
+        if low != 0 {
+            var j: u64 = 0;
+            while j < 6 { nic.mac[j] = mmio8(nic.base + 256u64 + j); j += 1; }
+        }
+        device_barrier();
+        transport_status(4u32);
+        transport_write(80u64, 0u32);
+        nic.state = 1;
+        return nic.state;
+    }
+}
+pub fn nic_send(frame: ptr<u8>, size: u64) -> bool {
+    unsafe {
+        if nic.state != 1 || size > 1514 { return false; }
+        var attempts: u32 = 0;
+        while u16(nic.tx_next - nic.tx_seen) >= 2u16 {
+            if attempts > 1000000 { return false; }
+            device_barrier();
+            nic.tx_seen = queue_read16(tx_ring(), 46u64);
+            attempts += 1;
+        }
+        let slot: u16 = nic.tx_next % 2u16;
+        let buffer: ptr<u8> = tx_buffer(slot);
+        fill_bytes(buffer, 0u8, 12u64);
+        copy_bytes(buffer + 12, frame, size);
+        queue_write64(tx_ring(), u64(slot) * 16u64, ptr_address(buffer));
+        queue_write32(tx_ring(), u64(slot) * 16u64 + 8u64, u32(size + 12u64));
+        queue_write16(tx_ring(), u64(slot) * 16u64 + 12u64, 0u16);
+        queue_write16(tx_ring(), 36u64 + u64(slot) * 2u64, slot);
+        device_barrier();
+        nic.tx_next = u16(nic.tx_next + 1u16);
+        queue_write16(tx_ring(), 34u64, nic.tx_next);
+        device_barrier();
+        transport_write(80u64, 1u32);
+        nic.frames_sent += 1;
+        return true;
+    }
+}
+pub fn nic_receive(frame: ptr<u8>, capacity: u64) -> u64 {
+    unsafe {
+        if nic.state != 1 || queue_read16(rx_ring(), 82u64) == nic.rx_seen { return 0; }
+        device_barrier();
+        let position: u64 = u64(nic.rx_seen % 4u16);
+        let id: u16 = u16(queue_read32(rx_ring(), 84u64 + position * 8u64));
+        let length: u32 = queue_read32(rx_ring(), 88u64 + position * 8u64);
+        nic.rx_seen = u16(nic.rx_seen + 1u16);
+        if id >= 4u16 { return 0; }
+        var size: u64 = length > 12u32 ? u64(length - 12u32) : 0u64;
+        if size > 1514 { size = 1514; }
+        if size > capacity { size = capacity; }
+        copy_bytes(frame, rx_buffer(id) + 12, size);
+        let avail: u16 = queue_read16(rx_ring(), 66u64);
+        queue_write16(rx_ring(), 68u64 + u64(avail % 4u16) * 2u64, id);
+        device_barrier();
+        queue_write16(rx_ring(), 66u64, u16(avail + 1u16));
+        device_barrier();
+        transport_write(80u64, 0u32);
+        nic.frames_received += 1;
+        return size;
+    }
+}

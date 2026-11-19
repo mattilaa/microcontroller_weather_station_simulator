@@ -1,0 +1,47 @@
+// Packet access is deliberately byte-wise: network fields are often unaligned.
+pub fn load_be16(data: ptr<u8>) -> u16 {
+    unsafe { return u16((u32(data[0]) << 8) | u32(data[1])); }
+}
+pub fn load_be32(data: ptr<u8>) -> u32 {
+    unsafe { return (u32(data[0]) << 24) | (u32(data[1]) << 16) | (u32(data[2]) << 8) | u32(data[3]); }
+}
+pub fn store_be16(data: ptr<u8>, value: u16) -> void {
+    unsafe { data[0] = u8(u32(value) >> 8); data[1] = u8(value); }
+}
+pub fn store_be32(data: ptr<u8>, value: u32) -> void {
+    unsafe { data[0] = u8(value >> 24); data[1] = u8(value >> 16); data[2] = u8(value >> 8); data[3] = u8(value); }
+}
+pub fn copy_bytes(dst: ptr<u8>, src: ptr<u8>, count: u64) -> void {
+    unsafe {
+        var i: u64 = 0;
+        while i < count { dst[i] = src[i]; i += 1; }
+    }
+}
+pub fn fill_bytes(dst: ptr<u8>, value: u8, count: u64) -> void {
+    unsafe {
+        var i: u64 = 0;
+        while i < count { dst[i] = value; i += 1; }
+    }
+}
+pub fn equal_bytes(left: ptr<u8>, right: ptr<u8>, count: u64) -> bool {
+    unsafe {
+        var i: u64 = 0;
+        while i < count { if left[i] != right[i] { return false; } i += 1; }
+        return true;
+    }
+}
+pub fn checksum_add(sum: u32, data: ptr<u8>, count: u64) -> u32 {
+    unsafe {
+        var i: u64 = 0;
+        while i + 1 < count { sum += (u32(data[i]) << 8) | u32(data[i + 1]); i += 2; }
+        if i < count { sum += u32(data[i]) << 8; }
+        return sum;
+    }
+}
+pub fn checksum_finish(sum: u32) -> u16 {
+    while (sum >> 16) != 0 { sum = (sum & 65535u32) + (sum >> 16); }
+    return u16(~sum);
+}
+pub fn internet_checksum(data: ptr<u8>, count: u64) -> u16 {
+    return checksum_finish(checksum_add(0u32, data, count));
+}

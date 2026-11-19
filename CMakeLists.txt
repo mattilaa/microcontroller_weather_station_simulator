@@ -7,9 +7,6 @@ endif()
 
 project(baremetal_aarch64 CXX ASM)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
@@ -25,43 +22,15 @@ set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/linker/qemu_virt.ld)
 add_executable(firmware
     ${MLANG_OBJECT}
     src/startup.S
-    src/main.cpp
-    src/app/mlang_bridge.cpp
-    src/app/console.cpp
-    src/app/scheduler.cpp
-    src/app/tasks.cpp
-    src/app/units.cpp
-    src/app/weather_model.cpp
-    src/app/weather_scenario.cpp
-    src/app/weather_service.cpp
-    src/app/weather_station.cpp
-    src/hal/pl011.cpp
-    src/hal/fw_cfg.cpp
-    src/hal/generic_timer.cpp
-    src/hal/semihosting.cpp
-    src/hal/virtio_mmio.cpp
-    src/hal/virtio_net.cpp
-    src/net/addresses.cpp
-    src/net/stack.cpp
-    src/runtime/cxx_runtime.cpp
-    src/runtime/libc_support.cpp
-    src/runtime/stack_usage.cpp
-    src/util/text_stream.cpp
-    src/util/static_tests.cpp   # compile-time tests only, emits no code
+    src/runtime/abi.S
 )
-set_target_properties(firmware PROPERTIES SUFFIX ".elf")
+set_target_properties(firmware PROPERTIES SUFFIX ".elf" LINKER_LANGUAGE CXX)
 target_include_directories(firmware PRIVATE src)
 
 target_compile_options(firmware PRIVATE
     # Freestanding: no hosted C/C++ library.
     -ffreestanding
     -fno-builtin
-    $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>
-    # Embedded C++ subset.
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
-    $<$<COMPILE_LANGUAGE:CXX>:-fno-use-cxa-atexit>
     -fno-unwind-tables
     -fno-asynchronous-unwind-tables
     # Keep the compiler from using FP/SIMD registers.
@@ -69,13 +38,10 @@ target_compile_options(firmware PRIVATE
     # The MMU is off, so all memory is Device memory: unaligned accesses
     # fault. Never let the compiler merge byte accesses into unaligned ones.
     -mstrict-align
-    # GCC turns copy/fill loops into memcpy/memset calls, even in
-    # libc_support.cpp's own memcpy/memset; stop that.
-    $<$<CXX_COMPILER_ID:GNU>:-fno-tree-loop-distribute-patterns>
     # Let the linker drop unused code.
     -ffunction-sections
     -fdata-sections
-    -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wnon-virtual-dtor
+    -Wall -Wextra -Wpedantic
     $<$<CONFIG:Debug>:-Og -g3>
     $<$<BOOL:${FIRMWARE_WERROR}>:-Werror>
 )
@@ -138,6 +104,12 @@ endif()
 enable_testing()
 set(Python3_FIND_VIRTUALENV FIRST)
 find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_test(NAME mlang_units
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_mlang.py"
+                --compiler-root "${MLANG_ROOT}")
+    set_tests_properties(mlang_units PROPERTIES LABELS "mlang;unit")
+endif()
 if(Python3_FOUND AND QEMU)
     add_test(NAME robot
         COMMAND ${Python3_EXECUTABLE} -m robot

@@ -7,8 +7,8 @@ mod service;
 use service::*;
 mod text;
 use text::*;
-mod platform;
-use platform::*;
+mod scenarios;
+use scenarios::*;
 
 pub fn apply_speed_switch(station: ptr<Station>, out: ptr<u8>, data: ptr<u8>, size: i32) -> void {
     unsafe {

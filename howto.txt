@@ -35,5 +35,6 @@ TESTS
   source .venv/bin/activate
   cmake --build build
   ctest --test-dir build --output-on-failure        # report: build/robot/log.html
+  python tools/test_mlang.py                      # portable memory/packet/log checks
   robot --pythonpath tests/libraries tests/weather.robot          # one suite
   robot --pythonpath tests/libraries --test "Quit*" tests         # one test

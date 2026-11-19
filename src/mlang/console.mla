@@ -7,9 +7,14 @@ mod text;
 use text::*;
 mod reports;
 use reports::*;
-mod platform;
-use platform::*;
-extern pub fn app_put(out: ptr<u8>, byte: u32) -> void;
+mod scenarios;
+use scenarios::*;
+mod streams;
+use streams::*;
+mod runtime;
+use runtime::*;
+mod status;
+use status::*;
 
 pub fn print_help(out: ptr<u8>) -> void {
     write_text(out, "Commands:\n  h  help\n  s  status\n  w  weather report (latest and averages)\n  d  dump the last 8 records\n  n  network status\n  +  faster simulation, -  slower (1x = real time)\n  c  next weather scenario\n  v  toggle verbose output\n  q  quit QEMU (semihosting)\n");

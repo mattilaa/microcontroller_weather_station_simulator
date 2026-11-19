@@ -56,7 +56,7 @@ pub fn standard_pressure_hpa(metres: i32) -> i32
     return (tenths + 5) / 10;
 }
 
-// A branch table avoids v0.4.4's heap-backed array literals.
+// This compact pressure table needs no heap allocation.
 fn pressure_table(index: i32) -> i32 {
     if index == 0 { return 10133; }
     if index == 1 { return 9546; }

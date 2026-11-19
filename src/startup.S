@@ -50,8 +50,7 @@ _start:
     str     x2, [x0], #8
     b       5b
 6:
-    /* Run C++ global constructors, then enter main(). */
-    bl      __run_global_constructors
+    /* MLang globals are static data; enter the firmware directly. */
     bl      main
 
     /* main() should never return; if it does, park. */

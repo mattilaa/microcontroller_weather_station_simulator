@@ -1,4 +1,4 @@
-// Deterministic weather processes. Layout matches app/weather_model.hpp.
+// Deterministic weather processes and fixed-size model state.
 mod fixed_math;
 use fixed_math::*;
 mod random;

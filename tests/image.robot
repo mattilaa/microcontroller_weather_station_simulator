@@ -1,6 +1,6 @@
 *** Settings ***
 Documentation       Static checks on the ELF image: memory layout and the
-...                 embedded C++ rules (no RTTI, exceptions, heap or
+...                 freestanding firmware rules (no RTTI, exceptions, heap or
 ...                 constructors run before main).
 
 Resource            resources/firmware.resource
@@ -32,6 +32,9 @@ Stack Is Placed After BSS
 No RTTI Data
     Symbols Should Not Match    ^_ZTI    ^_ZTS
 
+No C++ Runtime Or Adapters
+    Symbols Should Not Match    ^_Z    ^__cxa_    ^_GLOBAL__sub_I_
+
 No Exception Handling Or Unwinding
     Symbols Should Not Match    __gxx_personality    _Unwind_    __cxa_throw    __cxa_begin_catch
     Symbols Should Not Match    __mlang_std_exceptions_    ^_setjmp$    ^fwrite$    ^stderr$    ^__stderrp$
@@ -39,7 +42,7 @@ No Exception Handling Or Unwinding
     Section Should Not Exist    .gcc_except_table
 
 No Heap Allocation
-    Symbols Should Not Match    ^_Znwm    ^_Znam    ^_ZdlPv    ^_ZdaPv    ^malloc$    ^free$
+    Symbols Should Not Match    ^_Znwm    ^_Znam    ^_ZdlPv    ^_ZdaPv    ^malloc$    ^calloc$    ^realloc$    ^free$
 
 Weather Simulation Uses MLang
     Get Symbol Address    handle_command__ptr_struct_Station_ptr_u8_u64_ptr_u8
@@ -49,7 +52,7 @@ No Thread-Safe Static Guards Or Atexit Destructors
     Symbols Should Not Match    __cxa_guard_    __cxa_atexit    ^atexit$
 
 No Constructors Run Before Main
-    [Documentation]    All globals are constinit, so .init_array must be empty.
+    [Documentation]    MLang globals use static initialization, so .init_array must be empty.
     ${size}=    Get Section Size    .init_array
     Should Be Equal As Integers    ${size}    0
 

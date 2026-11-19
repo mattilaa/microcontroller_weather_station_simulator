@@ -5,9 +5,10 @@
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style
 main loop on QEMU's `virt` machine (Cortex-A53). MLang implements the weather model,
 sensors, record aggregation and packing, application protocol, console commands,
-reports, integer formatting, boot settings, and scheduling policy. Freestanding
-C++20 and assembly provide hardware drivers, networking, static storage, and
-interoperability adapters. CMake builds them into one firmware image.
+reports, integer formatting, boot settings, and scheduling policy. MLang also
+implements the hardware drivers, networking, static storage, and freestanding
+memory routines. Assembly provides CPU startup and a small set of ABI/linker
+symbol adapters. CMake builds them into one firmware image.
 
 It simulates temperature, humidity, wind speed, wind direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
@@ -44,11 +45,11 @@ clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
 Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
 Subsequent firmware builds recompile changed `.mla` modules automatically.
 
-The implementation lives in `src/mlang/`, rooted at `application.mla`. C++ adapters
-keep the existing static object initialization and interfaces; shared structure
-sizes are checked in both languages. MLang main supports structure-valued globals
-and inline `fixedarray<T, N>` storage; migration of the remaining C++ storage
-and drivers is in progress.
+The firmware implementation lives in `src/mlang/`, rooted at `application.mla`.
+No C++ firmware sources are compiled. Static globals and `fixedarray<T, N>` hold
+the log, scheduler state, packet buffers, and aligned virtio DMA queues. Climate
+presets are initialized statically; model seeds and sensor settings are applied
+explicitly from `main`, preserving the previous deterministic simulation.
 `tools/compile_mlang.py` emits LLVM IR and compiles it for
 `aarch64-none-elf` with strict alignment and general registers only. It supplies
 a non-throwing runtime in the same IR module so LLVM removes MLang's default
@@ -314,6 +315,12 @@ netdev carries each Ethernet frame as a UDP datagram between QEMU and the librar
 needs no root rights or TAP devices, and lets the tests build and check raw frames,
 checksums included.
 
+Portable MLang tests in `tests/firmware_unit_tests.mla` cover overlapping memory
+moves, byte fills/copies/comparisons, unaligned packet fields, Internet checksums,
+and log wraparound with exact sequence and packed-value checks. `ctest` runs these
+alongside Robot; the helper builds the host runtime in the MLang checkout. They
+can also be run with `python tools/test_mlang.py`.
+
 With the [virtual environment](#python-virtual-environment) set up and active:
 
 ```sh
@@ -335,11 +342,12 @@ robot --pythonpath tests/libraries --outputdir build/robot --test "Quit*" tests
 
 | Stage   | Jobs | What it does |
 |---------|------|--------------|
-| `lint`  | 1    | clang-format check (pinned to 21.1.8) and a Robot Framework dry run |
-| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, built with `-DFIRMWARE_WERROR=ON`; uploads the firmware as an artifact |
+| `lint`  | 1    | Python syntax checks and a Robot Framework dry run |
+| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, assembled/linked with `-DFIRMWARE_WERROR=ON`; runs portable MLang unit tests once and uploads the firmware as an artifact |
 | `test`  | 8    | the same matrix; downloads the matching firmware and runs the Robot suites under QEMU, with no compiler installed |
 
-GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
+The GNU/Clang drivers assemble the startup/glue and link MLang objects; they do
+not compile C++ firmware code. GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
 Ubuntu's native `g++`. Both provide `aarch64-linux-gnu-*` binaries, so both use the same
 `CROSS_PREFIX`. Robot logs are uploaded as artifacts too.
 
@@ -361,32 +369,27 @@ tests/libraries/                    Python keyword libraries: QEMU/UART driver, 
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: FLASH at 0x40000000, 32 KiB RAM at 0x40100000
-src/startup.S                       _start: park secondary cores, set up the stack, enable FP, zero .bss, run constructors, call main
-src/main.cpp                        static object graph + main loop
-src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
-src/app/tasks.*                     weather/network/console tasks
-src/app/weather_model.*             simulated weather (daily cycles + random processes)
-src/app/weather_station.*           sensors (noise, resolution, rain gauge, cloud cover), samples, 10-minute records, log
-src/app/weather_service.*           UDP command protocol (port 5000)
-src/app/units.*                     fixed-point units and their formatting
-src/app/console.*                   UART text output
-src/hal/mmio.hpp                    reg32 register wrapper, bit_field<Shift, Width>
-src/hal/virtio_mmio.*               virtio-mmio transport, virtqueue<N>
-src/hal/virtio_net.*                polled virtio-net driver
-src/hal/pl011.*                     PL011 UART driver (0x09000000)
-src/hal/generic_timer.*             ARM generic timer (CNTPCT_EL0)
-src/hal/semihosting.*               semihosting SYS_EXIT so QEMU can quit
-src/hal/fw_cfg.*                    QEMU fw_cfg reader (the speed switch)
-src/net/stack.*                     IPv4 stack: ARP, ICMP echo, UDP
-src/net/bytes.hpp                   big-endian field access, Internet checksum
-src/runtime/cxx_runtime.cpp         __cxa_pure_virtual, global-constructor loop
-src/runtime/libc_support.cpp        memcpy, memmove, memset, memcmp
-src/runtime/stack_usage.*           stack size and peak use (high-water mark)
-src/util/text_stream.*              type-safe `out << ...` formatting to any sink (replaces printf)
-src/util/fixed_math.hpp             integer sin/cos, clamp, wrap, rounding
-src/util/random.hpp                 xorshift32 with approximate Gaussian noise
-src/util/span.hpp                   span<T> buffer view
-src/util/ring_buffer.hpp            ring_buffer<T, N> fixed-capacity FIFO
-src/util/moving_average.hpp         moving_average<T, N, Acc> + arithmetic concept
-src/util/static_tests.cpp           compile-time unit tests
+src/startup.S                       _start: set up stack/RAM, park secondary cores, call main
+src/runtime/abi.S                   C runtime symbol aliases and linker-address accessors
+src/mlang/application.mla           station initialization and cooperative main loop
+src/mlang/hardware.mla              UART, generic timer, fw_cfg, MMIO and semihosting
+src/mlang/virtio_net.mla             aligned DMA queues and polled virtio-net driver
+src/mlang/network.mla               Ethernet, ARP, IPv4, ICMP and UDP stack
+src/mlang/net_bytes.mla             byte-wise packet fields and Internet checksums
+src/mlang/scenarios.mla             statically initialized climate presets
+src/mlang/weather_model.mla         deterministic daily cycles and random processes
+src/mlang/weather_station.mla       sensors, aggregation, packed records and fixed-capacity log
+src/mlang/scheduler.mla             fixed task table and deadlines
+src/mlang/streams.mla               UART output and bounded caller-owned reply buffers
+src/mlang/service.mla               UDP application command protocol
+src/mlang/console.mla               console commands and simulation controls
+src/mlang/reports.mla               weather reports and JSON/CSV formatting
+src/mlang/text.mla                  allocation-free integer and text formatting
+src/mlang/memory.mla                memcpy/memmove/memset/memcmp implementations
+src/mlang/runtime.mla               stack high-water mark, panic and exit
+src/mlang/fixed_math.mla             integer trigonometry, clamping and rounding
+src/mlang/random.mla                deterministic PRNG and sensor noise
+src/mlang/boot.mla                  boot speed/scenario configuration
+tests/firmware_unit_tests.mla       portable MLang regression tests
+tools/test_mlang.py                 host-native test runner
 ```

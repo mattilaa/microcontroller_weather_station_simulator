@@ -1,4 +1,4 @@
-// Application protocol. Packet transport and bounded reply storage remain in C++.
+// Application protocol over the MLang network stack and bounded output streams.
 mod text;
 use text::*;
 mod reports;
@@ -7,8 +7,8 @@ mod weather_station;
 use weather_station::*;
 mod weather_model;
 use weather_model::*;
-mod platform;
-use platform::*;
+mod scenarios;
+use scenarios::*;
 
 pub fn find_scenario_index(data: ptr<u8>, size: u64, offset: u64) -> i32 {
     unsafe {
@@ -26,7 +26,7 @@ pub fn find_scenario_index(data: ptr<u8>, size: u64, offset: u64) -> i32 {
     }
 }
 
-pub fn write_log_page(out: ptr<u8>, log: ptr<u8>, from: u32) -> void {
+pub fn write_log_page(out: ptr<u8>, log: ptr<WeatherLog>, from: u32) -> void {
     unsafe {
         let first: u64 = app_log_find(log, from);
         let available: u64 = app_log_size(log) - first;

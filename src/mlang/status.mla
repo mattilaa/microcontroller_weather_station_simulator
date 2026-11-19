@@ -1,0 +1,59 @@
+mod streams;
+use streams::*;
+mod text;
+use text::*;
+mod network;
+use network::*;
+mod virtio_net;
+use virtio_net::*;
+mod scheduler;
+use scheduler::*;
+pub fn app_print_network(out: ptr<u8>) -> void {
+    unsafe {
+        write_text(out, "network: ");
+        if nic_state() != 1 { write_text(out, nic_status_text()); write_text(out, "\n"); return; }
+        write_text(out, "up, MAC ");
+        let mac: ptr<u8> = nic_mac();
+        var i: u64 = 0;
+        while i < 6 {
+            if i != 0 { app_put(out, 58u32); }
+            write_uint(out, u64(mac[i]), 16u64, 2u32, 48u32);
+            i += 1;
+        }
+        write_text(out, ", IP ");
+        let address: ptr<u8> = net_address();
+        i = 0;
+        while i < 4 {
+            if i != 0 { app_put(out, 46u32); }
+            write_uint(out, u64(address[i]), 10u64, 0u32, 32u32);
+            i += 1;
+        }
+        write_text(out, ", UDP port 5000\n  frames rx ");
+        let stats: ptr<NetStats> = net_stats();
+        write_uint(out, u64((*stats).frames_received), 10u64, 0u32, 32u32);
+        write_text(out, ", tx ");
+        write_uint(out, u64((*stats).frames_sent), 10u64, 0u32, 32u32);
+        write_text(out, ", dropped ");
+        write_uint(out, u64((*stats).dropped), 10u64, 0u32, 32u32);
+        write_text(out, "\n  arp replies ");
+        write_uint(out, u64((*stats).arp_replies), 10u64, 0u32, 32u32);
+        write_text(out, ", echo replies ");
+        write_uint(out, u64((*stats).echo_replies), 10u64, 0u32, 32u32);
+        write_text(out, ", udp requests ");
+        write_uint(out, u64((*stats).udp_requests), 10u64, 0u32, 32u32);
+        write_text(out, "\n");
+    }
+}
+pub fn app_print_tasks(out: ptr<u8>) -> void {
+    unsafe {
+        var i: u64 = 0;
+        while i < 3 {
+            let task: ptr<TaskState> = task_at(i);
+            write_text(out, "  task "); write_text(out, (*task).name);
+            write_text(out, ": period "); write_uint(out, u64((*task).period_ms), 10u64, 0u32, 32u32);
+            write_text(out, " ms, runs "); write_uint(out, u64((*task).runs), 10u64, 0u32, 32u32);
+            write_text(out, "\n");
+            i += 1;
+        }
+    }
+}

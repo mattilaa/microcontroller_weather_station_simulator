@@ -1,0 +1,70 @@
+// Host-native checks for algorithms that do not need QEMU or device registers.
+mod runtime::memory;
+use runtime::memory::*;
+mod net::bytes;
+use net::bytes::*;
+mod app::weather_station;
+use app::weather_station::*;
+
+#[test]
+fn test_overlapping_moves_and_byte_memory_operations() -> i32 {
+    unsafe {
+        var bytes: fixedarray<u8, 16> = [0, 1, 2, 3, 4, 5, 6, 7];
+        let base: ptr<u8> = ptr_from_address<u8>(ptr_address(&mut bytes[0]));
+        memory_move(base + 2, base, 8u64);
+        var i: u64 = 0;
+        while i < 8 { if bytes[i + 2] != u8(i) { return 1; } i += 1; }
+        memory_move(base, base + 2, 8u64);
+        i = 0;
+        while i < 8 { if bytes[i] != u8(i) { return 2; } i += 1; }
+        var copy: fixedarray<u8, 16>;
+        let target: ptr<u8> = &mut copy[0];
+        memory_copy(target, base, 16u64);
+        if memory_compare(target, base, 16u64) != 0 { return 3; }
+        memory_fill(target, 255, 16u64);
+        if target[0] != 255u8 || target[15] != 255u8 { return 4; }
+        if memory_compare(target, base, 16u64) <= 0 { return 5; }
+        memory_copy(base, base, 0u64);
+        return 0;
+    }
+}
+
+#[test]
+fn test_unaligned_network_fields_and_checksum() -> i32 {
+    unsafe {
+        var bytes: fixedarray<u8, 9> = [0, 0, 1, 242, 3, 244, 245, 246, 247];
+        let data: ptr<u8> = &mut bytes[0];
+        if internet_checksum(data + 1, 8u64) != 8717u16 { return 1; }
+        store_be32(data + 1, 2309737967u32);
+        if load_be32(data + 1) != 2309737967u32 { return 2; }
+        store_be16(data + 3, 4660u16);
+        if load_be16(data + 3) != 4660u16 { return 3; }
+        if bytes[0] != 0u8 || bytes[1] != 137u8 || bytes[4] != 52u8 { return 4; }
+        var odd: fixedarray<u8, 3> = [1, 2, 3];
+        if internet_checksum(&mut odd[0], 3u64) != 64509u16 { return 5; }
+        return 0;
+    }
+}
+
+#[test]
+fn test_log_wrap_preserves_order_sequence_and_packed_values() -> i32 {
+    unsafe {
+        let log: ptr<WeatherLog> = log_handle();
+        var reading: Reading = Reading { day: 1, time: 600, humidity: 5000, pressure: 10234 };
+        var i: u32 = 0;
+        while i < 512 {
+            reading.temperature = i32(i) - 128;
+            weather_log_add(log, &mut reading);
+            i += 1;
+        }
+        if app_log_size(log) != 256u64 || app_log_next(log) != 512u32 { return 1; }
+        if app_log_find(log, 0u32) != 0u64 || app_log_find(log, 300u32) != 44u64 || app_log_find(log, 512u32) != 256u64 { return 2; }
+        i = 0;
+        while i < 256 {
+            if app_log_read(log, u64(i), &mut reading) != i + 256u32 { return 3; }
+            if reading.temperature != i32(i) + 128 || reading.pressure != 10234 { return 4; }
+            i += 1;
+        }
+        return 0;
+    }
+}

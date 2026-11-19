@@ -1,0 +1,86 @@
+// Fixed-point integer math; no floating point or allocation.
+
+pub fn clamp(v: i32, lo: i32, hi: i32) -> i32
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+pub fn wrap(v: i32, period: i32) -> i32
+{
+    var r: i32 = v % period;
+    return r < 0 ? r + period : r;
+}
+
+pub fn round_to(v: i32, step: i32) -> i32
+{
+    if(step <= 1) {
+        return v;
+    }
+    var half: i32 = step / 2;
+    return v >= 0 ?(v + half) / step * step : -((-v + half) / step * step);
+}
+
+pub cexpr fn SIN_SCALE() -> i32 { return 10000; }
+
+pub fn sin_deg(degrees: i32) -> i32
+{
+    var d: i32 = wrap(degrees, 360);
+    var sign: i32 = 1;
+    if(d >= 180)
+    {
+        d -= 180;
+        sign = -1;
+    }
+    var p: i32 = d * (180 - d);
+    return sign * (4 * SIN_SCALE() * p) / (40500 - p);
+}
+
+pub fn cos_deg(degrees: i32) -> i32
+{
+    return sin_deg(degrees + 90);
+}
+
+pub fn standard_pressure_hpa(metres: i32) -> i32
+{
+    let STEP: i32 = 500;
+    let LAST: i32 = 24;
+    if(metres <= 0) {
+        return (pressure_table(0) + 5) / 10;
+    }
+    if(metres >= LAST * STEP) {
+        return (pressure_table(LAST) + 5) / 10;
+    }
+    var i: i32 = metres / STEP;
+    var within: i32 = metres - i * STEP;
+    var tenths: i32 = pressure_table(i) + (pressure_table(i + 1) - pressure_table(i)) * within / STEP;
+    return (tenths + 5) / 10;
+}
+
+// This compact pressure table needs no heap allocation.
+fn pressure_table(index: i32) -> i32 {
+    if index == 0 { return 10133; }
+    if index == 1 { return 9546; }
+    if index == 2 { return 8988; }
+    if index == 3 { return 8456; }
+    if index == 4 { return 7950; }
+    if index == 5 { return 7469; }
+    if index == 6 { return 7012; }
+    if index == 7 { return 6578; }
+    if index == 8 { return 6164; }
+    if index == 9 { return 5770; }
+    if index == 10 { return 5405; }
+    if index == 11 { return 5054; }
+    if index == 12 { return 4722; }
+    if index == 13 { return 4408; }
+    if index == 14 { return 4111; }
+    if index == 15 { return 3830; }
+    if index == 16 { return 3565; }
+    if index == 17 { return 3315; }
+    if index == 18 { return 3080; }
+    if index == 19 { return 2858; }
+    if index == 20 { return 2650; }
+    if index == 21 { return 2454; }
+    if index == 22 { return 2270; }
+    if index == 23 { return 2098; }
+    return 1940;
+}

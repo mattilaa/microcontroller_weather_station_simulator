@@ -36,13 +36,10 @@ jobs:
             tools/requirements.txt
 
       - name: Install tools
-        # Pin clang-format so CI formats exactly like the developer machines.
-        run: pip install -r tests/requirements.txt clang-format==21.1.8
+        run: pip install -r tests/requirements.txt
 
-      - name: Check C++ formatting
-        run: |
-          find src \( -name '*.cpp' -o -name '*.hpp' \) -print0 \
-            | xargs -0 clang-format --dry-run --Werror
+      - name: Check Python syntax
+        run: python -m compileall -q tools tests/libraries
 
       - name: Validate Robot Framework suites (dry run)
         run: |
@@ -84,7 +81,8 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build ${{ matrix.packages }}
+          sudo apt-get install -y --no-install-recommends ninja-build \
+            clang llvm-dev lld flex bison libssl-dev ${{ matrix.packages }}
 
       - name: Show compiler
         run: |
@@ -93,6 +91,9 @@ jobs:
           else
             clang++ --version
           fi
+
+      - name: Bootstrap MLang main
+        run: ./bootstrap.sh
 
       - name: Configure
         run: >
@@ -103,6 +104,10 @@ jobs:
 
       - name: Build
         run: cmake --build build
+
+      - name: Run portable MLang unit tests
+        if: matrix.host == 'x64' && matrix.toolchain == 'clang' && matrix.build_type == 'Debug'
+        run: python3 tools/test_mlang.py
 
       - name: Upload firmware
         uses: actions/upload-artifact@v7

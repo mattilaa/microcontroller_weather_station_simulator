@@ -1,0 +1,186 @@
+// Allocation-free Ethernet/ARP/IPv4/ICMP/UDP host stack.
+mod hal::virtio_net;
+use hal::virtio_net::*;
+mod net::bytes;
+use net::bytes::*;
+mod app::weather_service;
+use app::weather_service::*;
+mod util::text_stream;
+use util::text_stream::*;
+mod app::weather_station;
+use app::weather_station::*;
+pub struct NetStats {
+    var frames_received: u32;
+    var frames_sent: u32;
+    var arp_replies: u32;
+    var echo_replies: u32;
+    var udp_requests: u32;
+    var dropped: u32;
+};
+var network_stats: NetStats;
+var network_rx: fixedarray<u8, 1514>;
+var network_tx: fixedarray<u8, 1514>;
+var host_address: fixedarray<u8, 4> = [10, 0, 2, 15];
+var broadcast_address: fixedarray<u8, 4> = [255, 255, 255, 255];
+var broadcast_mac: fixedarray<u8, 6> = [255, 255, 255, 255, 255, 255];
+var next_ip_id: u16 = 1;
+pub fn net_stats() -> ptr<NetStats> { return &mut network_stats; }
+pub fn net_address() -> ptr<u8> { return &mut host_address[0]; }
+fn rx_data() -> ptr<u8> { return &network_rx[0]; }
+fn rx_write_data() -> ptr<u8> { return &mut network_rx[0]; }
+fn tx_data() -> ptr<u8> { return &mut network_tx[0]; }
+fn net_drop() -> void { network_stats.dropped += 1; }
+fn ethernet_header(dst: ptr<u8>, kind: u16) -> void {
+    unsafe {
+        copy_bytes(tx_data(), dst, 6u64);
+        copy_bytes(tx_data() + 6, nic_mac(), 6u64);
+        store_be16(tx_data() + 12, kind);
+    }
+}
+fn send_frame(size: u64) -> void {
+    unsafe {
+        if size < 60 { fill_bytes(tx_data() + size, 0u8, 60u64 - size); size = 60; }
+        if nic_send(tx_data(), size) { network_stats.frames_sent += 1; }
+    }
+}
+fn pseudo_header(src: ptr<u8>, dst: ptr<u8>, size: u16) -> u32 {
+    return checksum_add(checksum_add(0u32, src, 4u64), dst, 4u64) + 17u32 + u32(size);
+}
+fn send_ipv4(dst_mac: ptr<u8>, dst_ip: ptr<u8>, protocol: u8, size: u64) -> void {
+    unsafe {
+        ethernet_header(dst_mac, 2048u16);
+        let ip: ptr<u8> = tx_data() + 14;
+        ip[0] = 69u8; ip[1] = 0u8;
+        store_be16(ip + 2, u16(20u64 + size));
+        store_be16(ip + 4, next_ip_id);
+        next_ip_id = u16(next_ip_id + 1u16);
+        store_be16(ip + 6, 16384u16);
+        ip[8] = 64u8; ip[9] = protocol;
+        store_be16(ip + 10, 0u16);
+        copy_bytes(ip + 12, net_address(), 4u64);
+        copy_bytes(ip + 16, dst_ip, 4u64);
+        store_be16(ip + 10, internet_checksum(ip, 20u64));
+        send_frame(34u64 + size);
+    }
+}
+pub fn network_announce() -> void {
+    unsafe {
+        ethernet_header(&mut broadcast_mac[0], 2054u16);
+        let arp: ptr<u8> = tx_data() + 14;
+        store_be16(arp, 1u16); store_be16(arp + 2, 2048u16);
+        arp[4] = 6u8; arp[5] = 4u8;
+        store_be16(arp + 6, 1u16);
+        copy_bytes(arp + 8, nic_mac(), 6u64);
+        copy_bytes(arp + 14, net_address(), 4u64);
+        fill_bytes(arp + 18, 0u8, 6u64);
+        copy_bytes(arp + 24, net_address(), 4u64);
+        send_frame(42u64);
+    }
+}
+fn handle_arp(size: u64) -> void {
+    unsafe {
+        if size < 42 { net_drop(); return; }
+        let arp: ptr<u8> = rx_data() + 14;
+        if load_be16(arp) != 1u16 || load_be16(arp + 2) != 2048u16 || arp[4] != 6u8 || arp[5] != 4u8 {
+            net_drop(); return;
+        }
+        if load_be16(arp + 6) != 1u16 || !equal_bytes(arp + 24, net_address(), 4u64) { net_drop(); return; }
+        ethernet_header(arp + 8, 2054u16);
+        let reply: ptr<u8> = tx_data() + 14;
+        copy_bytes(reply, arp, 6u64);
+        store_be16(reply + 6, 2u16);
+        copy_bytes(reply + 8, nic_mac(), 6u64);
+        copy_bytes(reply + 14, net_address(), 4u64);
+        copy_bytes(reply + 18, arp + 8, 6u64);
+        copy_bytes(reply + 24, arp + 14, 4u64);
+        send_frame(42u64);
+        network_stats.arp_replies += 1;
+    }
+}
+fn handle_icmp(src_mac: ptr<u8>, src_ip: ptr<u8>, message: ptr<u8>, size: u64) -> void {
+    unsafe {
+        if size < 8 || size > 1480 || message[0] != 8u8 || message[1] != 0u8 || internet_checksum(message, size) != 0u16 {
+            net_drop(); return;
+        }
+        let reply: ptr<u8> = tx_data() + 34;
+        copy_bytes(reply, message, size);
+        reply[0] = 0u8;
+        store_be16(reply + 2, 0u16);
+        store_be16(reply + 2, internet_checksum(reply, size));
+        send_ipv4(src_mac, src_ip, 1u8, size);
+        network_stats.echo_replies += 1;
+    }
+}
+fn handle_udp(station: ptr<Station>, src_mac: ptr<u8>, src_ip: ptr<u8>, dst_ip: ptr<u8>, segment: ptr<u8>, size: u64) -> void {
+    unsafe {
+        if size < 8 { net_drop(); return; }
+        let length: u16 = load_be16(segment + 4);
+        if length < 8u16 || u64(length) > size { net_drop(); return; }
+        if load_be16(segment + 6) != 0u16 {
+            if checksum_finish(checksum_add(pseudo_header(src_ip, dst_ip, length), segment, u64(length))) != 0u16 {
+                net_drop(); return;
+            }
+        }
+        let src_port: u16 = load_be16(segment);
+        if load_be16(segment + 2) != 5000u16 { net_drop(); return; }
+        network_stats.udp_requests += 1;
+        var reply_size: u64 = 0;
+        {
+            var output: Output = Output { kind: 1, buffer: tx_data() + 42, capacity: 1472u64 };
+            let out: ptr<u8> = ptr_from_address<u8>(ptr_address(&mut output));
+            handle_command(station, segment + 8, u64(length) - 8u64, out);
+            reply_size = output.size;
+        }
+        if reply_size == 0 { return; }
+        let reply: ptr<u8> = tx_data() + 34;
+        let reply_length: u16 = u16(8u64 + reply_size);
+        store_be16(reply, 5000u16);
+        store_be16(reply + 2, src_port);
+        store_be16(reply + 4, reply_length);
+        store_be16(reply + 6, 0u16);
+        var checksum: u16 = checksum_finish(checksum_add(pseudo_header(net_address(), src_ip, reply_length), reply, u64(reply_length)));
+        if checksum == 0u16 { checksum = 65535u16; }
+        store_be16(reply + 6, checksum);
+        send_ipv4(src_mac, src_ip, 17u8, u64(reply_length));
+    }
+}
+fn handle_ipv4(station: ptr<Station>, packet: ptr<u8>, size: u64) -> void {
+    unsafe {
+        if size < 34 { net_drop(); return; }
+        let ip: ptr<u8> = packet + 14;
+        let header_size: u64 = u64(ip[0] & 15u8) * 4u64;
+        let total_size: u64 = u64(load_be16(ip + 2));
+        if (ip[0] >> 4) != 4u8 || header_size < 20 || total_size < header_size || total_size > size - 14u64 {
+            net_drop(); return;
+        }
+        if internet_checksum(ip, header_size) != 0u16 || (load_be16(ip + 6) & 16383u16) != 0u16 {
+            net_drop(); return;
+        }
+        let src_ip: ptr<u8> = ip + 12;
+        let dst_ip: ptr<u8> = ip + 16;
+        if !equal_bytes(dst_ip, net_address(), 4u64) && !equal_bytes(dst_ip, &mut broadcast_address[0], 4u64) {
+            net_drop(); return;
+        }
+        let src_mac: ptr<u8> = packet + 6;
+        if ip[9] == 1u8 { handle_icmp(src_mac, src_ip, ip + header_size, total_size - header_size); }
+        else if ip[9] == 17u8 { handle_udp(station, src_mac, src_ip, dst_ip, ip + header_size, total_size - header_size); }
+        else { net_drop(); }
+    }
+}
+pub fn network_poll(station: ptr<Station>) -> void {
+    unsafe {
+        while true {
+            let size: u64 = nic_receive(rx_write_data(), 1514u64);
+            if size == 0 { return; }
+            network_stats.frames_received += 1;
+            if size < 14 { net_drop(); }
+            else if !equal_bytes(rx_data(), nic_mac(), 6u64) && !equal_bytes(rx_data(), &mut broadcast_mac[0], 6u64) { net_drop(); }
+            else {
+                let kind: u16 = load_be16(rx_data() + 12);
+                if kind == 2054u16 { handle_arp(size); }
+                else if kind == 2048u16 { handle_ipv4(station, rx_data(), size); }
+                else { net_drop(); }
+            }
+        }
+    }
+}

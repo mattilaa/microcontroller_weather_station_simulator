@@ -1,0 +1,26 @@
+// Bounded output streams; kind 0 is the UART, kind 1 is a UDP reply buffer.
+mod hal::hardware;
+use hal::hardware::*;
+pub struct Output {
+    var kind: u32;
+    var buffer: ptr<u8>;
+    var capacity: u64;
+    var size: u64;
+    var overflowed: bool;
+};
+var uart_output: Output;
+pub fn console_output() -> ptr<u8> {
+    unsafe { return ptr_from_address<u8>(ptr_address(&mut uart_output)); }
+}
+pub fn app_put(handle: ptr<u8>, byte: u32) -> void {
+    unsafe {
+        let out: ptr<Output> = ptr_from_address<Output>(ptr_address(handle));
+        if (*out).kind == 0 {
+            if byte == 10 { uart_put(13u32); }
+            uart_put(byte);
+        } else if (*out).size < (*out).capacity {
+            (*out).buffer[(*out).size] = u8(byte);
+            (*out).size += 1;
+        } else { (*out).overflowed = true; }
+    }
+}

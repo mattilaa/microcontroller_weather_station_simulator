@@ -1,10 +1,9 @@
 SETUP (once)
-  brew install cmake ninja qemu llvm lld
+  brew install cmake ninja qemu llvm lld flex bison openssl
   python3 -m venv .venv
   source .venv/bin/activate
   pip install -r tests/requirements.txt
-  cmake -B build -G Ninja
-  cmake --build build
+  ./build.sh -G Ninja              # fetch/build MLang main, then firmware
 
 RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   source .venv/bin/activate
@@ -36,5 +35,6 @@ TESTS
   source .venv/bin/activate
   cmake --build build
   ctest --test-dir build --output-on-failure        # report: build/robot/log.html
+  python tools/test_mlang.py                      # portable memory/packet/log checks
   robot --pythonpath tests/libraries tests/weather.robot          # one suite
   robot --pythonpath tests/libraries --test "Quit*" tests         # one test

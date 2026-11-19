@@ -1,0 +1,526 @@
+// Deterministic weather processes and fixed-size model state.
+mod util::fixed_math;
+use util::fixed_math::*;
+mod util::random;
+use util::random::*;
+pub struct Scenario {
+    var name: str8;
+    var description: str8;
+
+    var temperature_mean: i32;
+    var temperature_swing: i32;
+
+    var humidity_base: i32;
+    var humidity_per_degree: i32;
+
+    var cloud_mean: i32;
+    var cloud_trend_noise: i32;
+    var convective_cloud: i32;
+
+    var convection: i32;
+    var storm_cloud: i32;
+    var storm_convection: i32;
+
+    var rain_threshold: i32;
+    var rain_per_cloud: i32;
+
+    var wind_mean: i32;
+    var wind_swing: i32;
+    var gust_chance: i32;
+    var gust_min: i32;
+    var gust_max: i32;
+    var prevailing: i32;
+    var veering: i32;
+
+    var pressure_mean: i32;
+    var pressure_dip: i32;
+
+    var cirrus_mean: i32;
+};
+pub struct Conditions {
+    var temperature: i32;
+    var humidity: i32;
+    var wind_speed: i32;
+    var wind_gust: i32;
+    var wind_direction: i32;
+    var rain_rate: i32;
+    var pressure: i32;
+    var cloud_cover: i32;
+
+    var cirrus: i32;
+    var altostratus: i32;
+    var cumulus: i32;
+    var cumulonimbus: i32;
+    var lcl: i32;
+    var cumulus_top: i32;
+    var cirrus_base: i32;
+    var cirrus_top: i32;
+    var altostratus_base: i32;
+    var altostratus_top: i32;
+
+    var stratus: i32;
+    var stratocumulus: i32;
+    var nimbostratus: i32;
+
+    var altocumulus: i32;
+    var stratus_top: i32;
+    var stratocumulus_top: i32;
+    var nimbostratus_top: i32;
+    var altocumulus_base: i32;
+    var altocumulus_top: i32;
+};
+pub struct Levels { var base: i32;
+    var top: i32;
+};
+pub struct Model {
+    var _scenario: ptr<Scenario>;
+    var _scenario_start: u64;
+    var _sim_seconds: u64;
+    var _unstepped_seconds: u32;
+    var _rng: u32;
+    var _front: i32;
+    var _moisture: i32;
+    var _cloud_trend: i32;
+    var _cloud: i32;
+    var _wetness: i32;
+    var _sustained_wind: i32;
+    var _gust: i32;
+    var _prevailing: i32;
+    var _vane_swing: i32;
+    var _cirrus_rng: u32;
+    var _cirrus: i32;
+    var _level_rng: u32;
+    var _cirrus_level: i32;
+    var _altostratus_level: i32;
+    var _pressure_rng: u32;
+    var _pressure: i32;
+    var _cell_rng: u32;
+    var _cell: i32;
+    var _gust_rng: u32;
+    var _gust_factor: i32;
+    var _rain_fallen: i64;
+    var _conditions: Conditions;
+};
+
+pub cexpr fn MINUTES_PER_DAY() -> u32 { return 24 * 60; }
+
+pub cexpr fn SECONDS_PER_DAY() -> u32 { return MINUTES_PER_DAY() * 60; }
+
+pub cexpr fn START_MINUTE() -> u32 { return 6 * 60; }
+
+pub cexpr fn STEP_SECONDS() -> u32 { return 60; }
+
+pub cexpr fn CIRRUS_LOWEST() -> i32 { return 420; }
+
+pub cexpr fn CIRRUS_HIGHEST() -> i32 { return 190; }
+
+pub cexpr fn ALTOSTRATUS_LOWEST() -> i32 { return 800; }
+
+pub cexpr fn ALTOSTRATUS_HIGHEST() -> i32 { return 420; }
+
+pub cexpr fn CB_TOP() -> i32 { return 200; }
+
+pub cexpr fn STANDARD_PRESSURE() -> i32 { return 10132; }
+
+// One degree per four minutes: the daily sine peaks at 15:00, bottoms at 03:00.
+pub fn daily_phase_degrees(minute_of_day: u32) -> i32 {
+    unsafe {
+        let PEAK_MINUTE: i32 = 15 * 60;
+
+        return ((i32((minute_of_day))) - PEAK_MINUTE) / 4 + 90;
+    }
+}
+
+// Mean reversion: pull toward the target by dt/tau, then add bounded noise.
+pub fn revert(value: i32, target: i32, dt_seconds: u32, tau_seconds: u32, noise: i32) -> i32 {
+    unsafe {
+        var pull: i64 = (i64((target - value))) * dt_seconds /
+            (dt_seconds > tau_seconds ? dt_seconds : tau_seconds);
+        return value + (i32((pull))) + noise;
+    }
+}
+
+// Internal state has 1000x the public resolution, preserving slow drifts.
+pub cexpr fn FINE() -> i32 { return 1000; }
+
+pub cexpr fn FRONT_NOISE() -> i32 { return 9 * FINE(); }
+
+pub cexpr fn MOISTURE_NOISE() -> i32 { return 32 * FINE(); }
+
+pub cexpr fn CLOUD_NOISE() -> i32 { return 6 * FINE(); }
+
+pub cexpr fn WIND_NOISE() -> i32 { return 13 * FINE(); }
+
+pub cexpr fn PREVAILING_NOISE() -> i32 { return 16 * FINE(); }
+
+pub fn daily_temperature(model: ptr<Model>, minute_of_day: u32) -> i32 {
+    unsafe {
+        return (*(*model)._scenario).temperature_mean +
+            (*(*model)._scenario).temperature_swing *
+            sin_deg(daily_phase_degrees(minute_of_day)) /
+            SIN_SCALE();
+    }
+}
+
+pub fn daily_convection(minute_of_day: u32) -> i32 {
+    unsafe {
+        var s: i32 = sin_deg(daily_phase_degrees(minute_of_day));
+        return s > 0 ? s / 10 : 0;
+    }
+}
+
+// Dew-point spread gives 25 metres per percent below saturation. Scale the
+// standard-atmosphere pressure to the simulated surface pressure.
+pub fn lcl_hpa(humidity: i32, surface_pressure: i32) -> i32 {
+    unsafe {
+        var metres: i32 = (10000 - clamp(humidity, 0, 10000)) / 4;
+        return standard_pressure_hpa(metres) * surface_pressure /
+            STANDARD_PRESSURE();
+    }
+}
+
+pub fn stratus_top(lcl: i32, amount: i32) -> i32 {
+    unsafe {
+        return lcl - 25 - 40 * clamp(amount, 0, 1000) / 1000;
+    }
+}
+
+pub fn stratocumulus_top(lcl: i32, amount: i32) -> i32 {
+    unsafe {
+        return lcl - 60 - 90 * clamp(amount, 0, 1000) / 1000;
+    }
+}
+
+pub fn altocumulus_levels(altostratus_base: i32, altostratus_top: i32, amount: i32) -> Levels {
+    unsafe {
+        var centre: i32 = (altostratus_base + altostratus_top) / 2 - 15;
+        var half: i32 = 15 + 50 * clamp(amount, 0, 1000) / 1000;
+        return Levels { base: centre + half, top: centre - half };
+    }
+}
+
+pub fn daily_mean_wind(model: ptr<Model>, minute_of_day: u32) -> i32 {
+    unsafe {
+        return (*(*model)._scenario).wind_mean +
+            (*(*model)._scenario).wind_swing *
+            sin_deg(daily_phase_degrees(minute_of_day)) /
+            SIN_SCALE();
+    }
+}
+
+pub fn cloudiness(model: ptr<Model>) -> i32 {
+    unsafe {
+        var convective: i32 =
+            (*(*model)._scenario).convective_cloud * daily_convection(minute_of_day(model)) / 1000 *
+            (*(*model)._scenario).convection / 1000 * ((*model)._cell / FINE()) / 1000;
+        return clamp((*model)._cloud / FINE() + convective, 0, 1000);
+    }
+}
+
+pub fn set_scenario(model: ptr<Model>, chosen: ptr<Scenario>) -> void {
+    unsafe {
+        (*model)._scenario = chosen;
+        (*model)._scenario_start = (*model)._sim_seconds;
+        (*model)._front = 0;
+        (*model)._moisture = 0;
+        (*model)._wetness = 0;
+        (*model)._gust = 0;
+        (*model)._cloud = (*chosen).cloud_mean * FINE();
+        (*model)._cloud_trend = (*model)._cloud;
+        (*model)._sustained_wind = daily_mean_wind(model, minute_of_day(model)) * FINE();
+        (*model)._prevailing = (*chosen).prevailing * FINE();
+        (*model)._cirrus = (*chosen).cirrus_mean * FINE();
+        (*model)._pressure = (*chosen).pressure_mean * FINE();
+        update_conditions(model);
+    }
+}
+
+pub fn day(model: ptr<Model>) -> u32 {
+    unsafe {
+        return (u32(((*model)._sim_seconds / SECONDS_PER_DAY()))) + 1;
+    }
+}
+
+pub fn second_of_day(model: ptr<Model>) -> u32 {
+    unsafe {
+        return (u32(((*model)._sim_seconds % SECONDS_PER_DAY())));
+    }
+}
+
+pub fn minute_of_day(model: ptr<Model>) -> u32 {
+    unsafe {
+        return second_of_day(model) / 60;
+    }
+}
+
+// Step each complete minute regardless of external simulation speed.
+pub fn advance_simulated(model: ptr<Model>, sim_seconds: u32) -> void {
+    unsafe {
+        (*model)._sim_seconds += sim_seconds;
+        (*model)._unstepped_seconds += sim_seconds;
+        while((*model)._unstepped_seconds >= STEP_SECONDS())
+        {
+            (*model)._unstepped_seconds -= STEP_SECONDS();
+            step(model, STEP_SECONDS());
+        }
+        update_conditions(model);
+    }
+}
+
+// Integrate hundredths of mm/hour over seconds; retain fractional rain.
+pub fn take_rain(model: ptr<Model>) -> i32 {
+    unsafe {
+        var amount: i64 = (*model)._rain_fallen / 3600;
+        (*model)._rain_fallen -= amount * 3600;
+        return (i32((amount)));
+    }
+}
+
+pub fn set_time_of_day(model: ptr<Model>, minute: u32) -> void {
+    unsafe {
+        var day_start: u64 = (*model)._sim_seconds / SECONDS_PER_DAY() * SECONDS_PER_DAY();
+        (*model)._sim_seconds = day_start + (minute % MINUTES_PER_DAY()) * 60;
+        update_conditions(model);
+    }
+}
+
+// Independent seeded processes preserve reproducibility when adding layers.
+pub fn step(model: ptr<Model>, dt: u32) -> void {
+    unsafe {
+        (*model)._front = clamp(
+        revert((*model)._front, 0, dt, 6 * 3600, gaussian(&mut (*model)._rng, FRONT_NOISE())),
+            - 300 * FINE(),
+            300 * FINE());
+
+        (*model)._moisture = clamp(
+        revert((*model)._moisture, 0, dt, 3 * 3600, gaussian(&mut (*model)._rng, MOISTURE_NOISE())),
+            - 1000 * FINE(),
+            1000 * FINE());
+
+        (*model)._cloud_trend = clamp(
+        revert(
+        (*model)._cloud_trend,
+            (*(*model)._scenario).cloud_mean * FINE(),
+            dt,
+            6 * 3600,
+            gaussian(&mut (*model)._rng, (*(*model)._scenario).cloud_trend_noise * FINE())),
+            0,
+            1000 * FINE());
+        (*model)._cloud = clamp(
+        revert((*model)._cloud, (*model)._cloud_trend, dt, 3600, gaussian(&mut (*model)._rng, CLOUD_NOISE())),
+            0,
+            1000 * FINE());
+
+        var raining: bool = cloudiness(model) > (*(*model)._scenario).rain_threshold;
+        (*model)._wetness = raining ? revert((*model)._wetness, 1000 * FINE(), dt, 30 * 60, 0)
+        : revert((*model)._wetness, 0, dt, 2 * 3600, 0);
+
+        (*model)._sustained_wind = clamp(
+        revert(
+        (*model)._sustained_wind,
+            daily_mean_wind(model, minute_of_day(model)) * FINE(),
+            dt,
+            30 * 60,
+            gaussian(&mut (*model)._rng, WIND_NOISE())),
+            0,
+            2000 * FINE());
+
+        (*model)._gust = (i32(((i64(((*model)._gust))) * 933 / 1000)));
+        if(below(&mut (*model)._rng, 1000) < (u32(((*(*model)._scenario).gust_chance)))) {
+            (*model)._gust += between(&mut (*model)._rng, (*(*model)._scenario).gust_min, (*(*model)._scenario).gust_max) * FINE();
+        }
+
+        var veered: i64 =
+            (i64(((*(*model)._scenario).veering))) * FINE() *
+            (i64(((*model)._sim_seconds - (*model)._scenario_start))) / 3600;
+        (*model)._prevailing = revert(
+        (*model)._prevailing,
+            (*(*model)._scenario).prevailing * FINE() + (i32((veered))),
+            dt,
+            12 * 3600,
+            gaussian(&mut (*model)._rng, PREVAILING_NOISE()));
+
+        var speed: i32 = ((*model)._sustained_wind + (*model)._gust) / FINE();
+
+        (*model)._vane_swing = gaussian(&mut (*model)._rng, 3000 / (speed + 100));
+
+        let CIRRUS_NOISE: i32 = 16 * FINE();
+        (*model)._cirrus = clamp(
+        revert(
+        (*model)._cirrus,
+            (*(*model)._scenario).cirrus_mean * FINE(),
+            dt,
+            8 * 3600,
+            gaussian(&mut (*model)._cirrus_rng, CIRRUS_NOISE)),
+            0,
+            1000 * FINE());
+
+        (*model)._cirrus_level = clamp(
+        revert(
+        (*model)._cirrus_level,
+            270 * FINE(),
+            dt,
+            6 * 3600,
+            gaussian(&mut (*model)._level_rng, 4 * FINE())),
+            230 * FINE(),
+            330 * FINE());
+        (*model)._altostratus_level = clamp(
+        revert(
+        (*model)._altostratus_level,
+            580 * FINE(),
+            dt,
+            4 * 3600,
+            gaussian(&mut (*model)._level_rng, 7 * FINE())),
+            500 * FINE(),
+            660 * FINE());
+
+        var since_start: i32 = (i32((
+        ((*model)._sim_seconds - (*model)._scenario_start) % SECONDS_PER_DAY())));
+        var dip: i32 = (*(*model)._scenario).pressure_dip *
+            (SIN_SCALE() - cos_deg(since_start / 240)) /
+            (2 * SIN_SCALE());
+        (*model)._pressure = clamp(
+        revert(
+        (*model)._pressure,
+            ((*(*model)._scenario).pressure_mean - dip) * FINE(),
+            dt,
+            3 * 3600,
+            gaussian(&mut (*model)._pressure_rng, 3 * FINE())),
+            8700 * FINE(),
+            10850 * FINE());
+
+        (*model)._gust_factor = between(&mut (*model)._gust_rng, 1100, 1400);
+
+        (*model)._cell = clamp(
+        revert((*model)._cell, 450 * FINE(), dt, 40 * 60, gaussian(&mut (*model)._cell_rng, 67 * FINE())),
+            0,
+            1000 * FINE());
+
+        update_conditions(model);
+        (*model)._rain_fallen += (i64(((*model)._conditions.rain_rate))) * dt;
+    }
+}
+
+// Split low/middle cloud into convective and stratiform types, then derive
+// pressure levels and the observable surface conditions using integers only.
+pub fn update_conditions(model: ptr<Model>) -> void {
+    unsafe {
+        var minute: u32 = minute_of_day(model);
+        var cloud: i32 = cloudiness(model);
+
+        let sc: Scenario = * (*model)._scenario;
+
+        var rain_rate: i32 =
+            cloud > sc.rain_threshold
+        ?(cloud - sc.rain_threshold) * sc.rain_per_cloud / 1000
+        : 0;
+
+        var clear_sky_swing: i32 =
+            daily_temperature(model, minute) - sc.temperature_mean;
+        var temperature: i32 = sc.temperature_mean +
+            clear_sky_swing * (1000 - cloud / 4) / 1000 +
+            (*model)._front / FINE() - rain_rate / 4;
+
+        var humidity: i32 =
+            sc.humidity_base -
+            sc.humidity_per_degree * (temperature - sc.temperature_mean) +
+            (*model)._moisture / FINE() + (cloud - sc.cloud_mean) * 2 +
+            (*model)._wetness / FINE() * 5 / 2;
+
+        var relative_humidity: i32 = clamp(humidity, 1500, 10000);
+        var convection: i32 = daily_convection(minute) * sc.convection / 1000;
+        var cumulonimbus: i32 = 0;
+        if(cloud > sc.storm_cloud && convection > sc.storm_convection) {
+            cumulonimbus = clamp(
+            (cloud - sc.storm_cloud) * 3 * convection / 1000,
+                0,
+                cloud);
+        }
+        var layered: i32 = cloud - cumulonimbus;
+        var nimbostratus: i32 =
+            rain_rate > 0 ? clamp((cloud - 600) * 3, 0, layered) *
+            (1000 - convection) / 1000
+        : 0;
+        var rest: i32 = layered - nimbostratus;
+        var cumulus: i32 = rest * convection / 1000;
+        var stratiform: i32 = rest - cumulus;
+        var low: i32 = stratiform / 2;
+
+        var saturation: i32 =
+            clamp((relative_humidity - 7500) * 1000 / 2500, 0, 1000);
+        var stratus: i32 = low * saturation / 1000;
+        var stratocumulus: i32 = low - stratus;
+        var middle: i32 = stratiform - low;
+        var altocumulus: i32 = middle * (300 + 400 * convection / 1000) / 1000;
+        var altostratus: i32 = middle - altocumulus;
+        var cirrus: i32 = (*model)._cirrus / FINE();
+
+        var pressure: i32 = (*model)._pressure / FINE();
+        var lcl: i32 = lcl_hpa(relative_humidity, pressure);
+
+        var cumulus_top: i32 =
+            clamp(lcl - 80 - 270 * convection / 1000, 450, lcl);
+
+        var cirrus_half: i32 = 15 + 60 * cirrus / 1000;
+        var cirrus_level: i32 = (*model)._cirrus_level / FINE();
+        var cirrus_base: i32 =
+            clamp(cirrus_level + cirrus_half, cirrus_level, CIRRUS_LOWEST());
+        var cirrus_top: i32 =
+            clamp(cirrus_level - cirrus_half, CIRRUS_HIGHEST(), cirrus_level);
+        var altostratus_half: i32 = 20 + 110 * altostratus / 1000;
+        var altostratus_level: i32 = (*model)._altostratus_level / FINE();
+        var altostratus_base: i32 = clamp(
+        altostratus_level + altostratus_half,
+            altostratus_level,
+            clamp(lcl - 20, altostratus_level, ALTOSTRATUS_LOWEST()));
+        var altostratus_top: i32 = clamp(
+        altostratus_level - altostratus_half,
+            ALTOSTRATUS_HIGHEST(),
+            altostratus_level);
+
+        var sky: i32 = cloud + cirrus / 2 * (1000 - cloud) / 1000;
+
+        (*model)._conditions = Conditions {
+            temperature: temperature,
+                humidity: relative_humidity,
+                wind_speed: clamp(((*model)._sustained_wind + (*model)._gust) / FINE(), 0, 4000),
+                wind_gust: clamp(
+            ((*model)._sustained_wind + (*model)._gust) / FINE() * (*model)._gust_factor / 1000,
+                0,
+                6000),
+                wind_direction:
+            wrap((*model)._prevailing / FINE() / 10 + (*model)._vane_swing, 360),
+                rain_rate: rain_rate,
+                pressure: pressure,
+                cloud_cover: sky,
+                cirrus: cirrus,
+                altostratus: altostratus,
+                cumulus: cumulus,
+                cumulonimbus: cumulonimbus,
+                lcl: lcl,
+                cumulus_top: cumulus_top,
+                cirrus_base: cirrus_base,
+                cirrus_top: cirrus_top,
+                altostratus_base: altostratus_base,
+                altostratus_top: altostratus_top,
+                stratus: stratus,
+                stratocumulus: stratocumulus,
+                nimbostratus: nimbostratus,
+                altocumulus: altocumulus,
+                stratus_top: stratus_top(lcl, stratus),
+                stratocumulus_top: stratocumulus_top(lcl, stratocumulus),
+                nimbostratus_top: altostratus_top,
+                altocumulus_base:
+            altocumulus_levels(altostratus_base, altostratus_top, altocumulus)
+            .base,
+                altocumulus_top:
+            altocumulus_levels(altostratus_base, altostratus_top, altocumulus)
+            .top
+        };
+    }
+}
+
+pub fn altocumulus_into(result: ptr<Levels>, base: i32, top: i32, amount: i32) -> void {
+    unsafe { * result = altocumulus_levels(base, top, amount);
+    }
+}

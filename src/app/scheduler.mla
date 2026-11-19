@@ -1,0 +1,26 @@
+// Explicit cooperative task dispatch replaces the C++ virtual task hierarchy.
+pub struct TaskState { var name: str8; var period_ms: u32; var next: u64; var runs: u32; };
+var tasks: fixedarray<TaskState, 3> = [
+    TaskState { name: "weather", period_ms: 1000 },
+    TaskState { name: "network", period_ms: 5 },
+    TaskState { name: "console", period_ms: 10 }
+];
+pub fn task_at(index: u64) -> ptr<TaskState> { return &mut tasks[index]; }
+pub fn task_due(next: ptr<u64>, runs: ptr<u32>, period_ms: u32, now_ms: u64) -> bool {
+    unsafe {
+        if now_ms < *next { return false; }
+        *next = now_ms + u64(period_ms);
+        *runs = *runs + 1;
+        return true;
+    }
+}
+
+
+pub fn task_ready(task: ptr<TaskState>, now_ms: u64) -> bool {
+    unsafe {
+        if now_ms < (*task).next { return false; }
+        (*task).next = now_ms + u64((*task).period_ms);
+        (*task).runs += 1;
+        return true;
+    }
+}

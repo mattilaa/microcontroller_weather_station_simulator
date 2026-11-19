@@ -3,8 +3,12 @@
 # Microcontroller weather station simulator using QEMU
 
 A bare-metal AArch64 program (no operating system) that runs a microcontroller-style
-main loop on QEMU's `virt` machine (Cortex-A53). It is written in freestanding C++20
-and built with CMake.
+main loop on QEMU's `virt` machine (Cortex-A53). MLang implements the weather model,
+sensors, record aggregation and packing, application protocol, console commands,
+reports, integer formatting, boot settings, and scheduling policy. MLang also
+implements the hardware drivers, networking, static storage, and freestanding
+memory routines. Assembly provides CPU startup and a small set of ABI/linker
+symbol adapters. CMake builds them into one firmware image.
 
 It simulates temperature, humidity, wind speed, wind direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
 IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
@@ -13,6 +17,56 @@ the Finnish Meteorological Institute's forecast chart:
 ![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
 **Just the commands** for setup, running and testing: [howto.txt](howto.txt).
+
+## MLang toolchain
+
+`./build.sh` fetches and fast-forwards [MLang main](https://github.com/mattilaa/mlang/tree/main)
+into the ignored `subprojects/mlang` directory, builds its host compiler, then
+configures and builds the firmware. Like `../mlacker`, the dependency is a local
+checkout fetched before building, rather than a committed submodule. Existing
+modified checkouts and development branches are preserved. The old clean
+v0.4.4 checkout is migrated to `main` automatically. Builds disable automatic
+compiler version increments.
+
+```sh
+# macOS host dependencies (in addition to Python test dependencies below)
+brew install cmake ninja qemu llvm lld flex bison openssl
+./build.sh -G Ninja
+
+# Fetch/build only the host compiler
+./bootstrap.sh
+
+# Select another firmware build directory or configuration
+BUILD_DIR=build-release ./build.sh -G Ninja -DCMAKE_BUILD_TYPE=Release
+```
+
+On Debian/Ubuntu the host compiler needs `build-essential cmake ninja-build
+clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
+Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
+Subsequent firmware builds recompile changed `.mla` modules automatically.
+
+The firmware implementation lives in `src/`, rooted at `main.mla`.
+No C++ firmware sources are compiled. Static globals and `fixedarray<T, N>` hold
+the log, scheduler state, packet buffers, and aligned virtio DMA queues. Climate
+presets are initialized statically; model seeds and sensor settings are applied
+explicitly from `main`, preserving the previous deterministic simulation.
+`tools/compile_mlang.py` emits LLVM IR and compiles it for
+`aarch64-none-elf` with strict alignment and general registers only. It supplies
+a non-throwing runtime in the same IR module so LLVM removes MLang's default
+exception frames. The final LLVM pass optimizes for size (`-Oz`). Pointer-check
+failures enter the firmware panic handler.
+The firmware links no hosted MLang runtime and has no heap. Use
+`fixedarray<T, N>` for allocation-free storage; existing list and `array<T, N>`
+literals still allocate.
+
+To test compiler development without changing the fetched main checkout:
+
+```sh
+MLANG_ROOT=../mlang BUILD_DIR=build-mlang-dev ./build.sh -G Ninja
+```
+
+CMake also accepts `-DMLANG_ROOT=/absolute/path/to/mlang`. An explicit checkout
+is built in place and is not fetched or switched by bootstrap.
 
 ## Real time and the speed switch
 
@@ -261,6 +315,12 @@ netdev carries each Ethernet frame as a UDP datagram between QEMU and the librar
 needs no root rights or TAP devices, and lets the tests build and check raw frames,
 checksums included.
 
+Portable MLang tests in `tests/firmware_unit_tests.mla` cover overlapping memory
+moves, byte fills/copies/comparisons, unaligned packet fields, Internet checksums,
+and log wraparound with exact sequence and packed-value checks. `ctest` runs these
+alongside Robot; the helper builds the host runtime in the MLang checkout. They
+can also be run with `python tools/test_mlang.py`.
+
 With the [virtual environment](#python-virtual-environment) set up and active:
 
 ```sh
@@ -282,11 +342,12 @@ robot --pythonpath tests/libraries --outputdir build/robot --test "Quit*" tests
 
 | Stage   | Jobs | What it does |
 |---------|------|--------------|
-| `lint`  | 1    | clang-format check (pinned to 21.1.8) and a Robot Framework dry run |
-| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, built with `-DFIRMWARE_WERROR=ON`; uploads the firmware as an artifact |
+| `lint`  | 1    | Python syntax checks and a Robot Framework dry run |
+| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, assembled/linked with `-DFIRMWARE_WERROR=ON`; runs portable MLang unit tests once and uploads the firmware as an artifact |
 | `test`  | 8    | the same matrix; downloads the matching firmware and runs the Robot suites under QEMU, with no compiler installed |
 
-GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
+The GNU/Clang drivers assemble the startup/glue and link MLang objects; they do
+not compile C++ firmware code. GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
 Ubuntu's native `g++`. Both provide `aarch64-linux-gnu-*` binaries, so both use the same
 `CROSS_PREFIX`. Robot logs are uploaded as artifacts too.
 
@@ -308,32 +369,27 @@ tests/libraries/                    Python keyword libraries: QEMU/UART driver, 
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: FLASH at 0x40000000, 32 KiB RAM at 0x40100000
-src/startup.S                       _start: park secondary cores, set up the stack, enable FP, zero .bss, run constructors, call main
-src/main.cpp                        static object graph + main loop
-src/app/scheduler.*                 task base class (virtual run) + cooperative scheduler
-src/app/tasks.*                     weather/network/console tasks
-src/app/weather_model.*             simulated weather (daily cycles + random processes)
-src/app/weather_station.*           sensors (noise, resolution, rain gauge, cloud cover), samples, 10-minute records, log
-src/app/weather_service.*           UDP command protocol (port 5000)
-src/app/units.*                     fixed-point units and their formatting
-src/app/console.*                   UART text output
-src/hal/mmio.hpp                    reg32 register wrapper, bit_field<Shift, Width>
-src/hal/virtio_mmio.*               virtio-mmio transport, virtqueue<N>
-src/hal/virtio_net.*                polled virtio-net driver
-src/hal/pl011.*                     PL011 UART driver (0x09000000)
-src/hal/generic_timer.*             ARM generic timer (CNTPCT_EL0)
-src/hal/semihosting.*               semihosting SYS_EXIT so QEMU can quit
-src/hal/fw_cfg.*                    QEMU fw_cfg reader (the speed switch)
-src/net/stack.*                     IPv4 stack: ARP, ICMP echo, UDP
-src/net/bytes.hpp                   big-endian field access, Internet checksum
-src/runtime/cxx_runtime.cpp         __cxa_pure_virtual, global-constructor loop
-src/runtime/libc_support.cpp        memcpy, memmove, memset, memcmp
-src/runtime/stack_usage.*           stack size and peak use (high-water mark)
-src/util/text_stream.*              type-safe `out << ...` formatting to any sink (replaces printf)
-src/util/fixed_math.hpp             integer sin/cos, clamp, wrap, rounding
-src/util/random.hpp                 xorshift32 with approximate Gaussian noise
-src/util/span.hpp                   span<T> buffer view
-src/util/ring_buffer.hpp            ring_buffer<T, N> fixed-capacity FIFO
-src/util/moving_average.hpp         moving_average<T, N, Acc> + arithmetic concept
-src/util/static_tests.cpp           compile-time unit tests
+src/startup.S                      _start: set up stack/RAM, park secondary cores, call main
+src/runtime/abi.S                  C runtime symbol aliases and linker-address accessors
+src/main.mla                       station initialization and cooperative main loop
+src/hal/hardware.mla               UART, generic timer, fw_cfg, MMIO and semihosting
+src/hal/virtio_net.mla             aligned DMA queues and polled virtio-net driver
+src/net/stack.mla                  Ethernet, ARP, IPv4, ICMP and UDP stack
+src/net/bytes.mla                  byte-wise packet fields and Internet checksums
+src/app/weather_scenario.mla       statically initialized climate presets
+src/app/weather_model.mla          deterministic daily cycles and random processes
+src/app/weather_station.mla        sensors, aggregation, packed records and fixed-capacity log
+src/app/scheduler.mla              fixed task table and deadlines
+src/util/text_stream.mla           UART output and bounded caller-owned reply buffers
+src/app/weather_service.mla        UDP application command protocol
+src/app/console.mla                console commands and simulation controls
+src/app/reports.mla                weather reports and JSON/CSV formatting
+src/util/text.mla                  allocation-free integer and text formatting
+src/runtime/memory.mla             memcpy/memmove/memset/memcmp implementations
+src/runtime/runtime.mla            stack high-water mark, panic and exit
+src/util/fixed_math.mla            integer trigonometry, clamping and rounding
+src/util/random.mla                deterministic PRNG and sensor noise
+src/app/boot.mla                   boot speed/scenario configuration
+tests/firmware_unit_tests.mla      portable MLang regression tests
+tools/test_mlang.py                host-native test runner
 ```

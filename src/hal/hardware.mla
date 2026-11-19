@@ -1,0 +1,103 @@
+// QEMU virt hardware access. All MMIO uses volatile, naturally aligned loads.
+pub fn mmio32(address: u64) -> u32 {
+    unsafe { return volatile_load(ptr_from_address<u32>(address)); }
+}
+pub fn mmio_write32(address: u64, value: u32) -> void {
+    unsafe { volatile_store(ptr_from_address<u32>(address), value); }
+}
+pub fn mmio8(address: u64) -> u8 {
+    unsafe { return volatile_load(ptr_from_address<u8>(address)); }
+}
+pub fn uart_init() -> void {
+    mmio_write32(150994992u64, 0u32);
+    mmio_write32(150994980u64, 13u32);
+    mmio_write32(150994984u64, 1u32);
+    mmio_write32(150994988u64, 112u32);
+    mmio_write32(150995000u64, 0u32);
+    mmio_write32(150994992u64, 769u32);
+}
+pub fn uart_put(byte: u32) -> void {
+    while (mmio32(150994968u64) & 32u32) != 0u32 { asm volatile aarch64(void, "yield"); }
+    mmio_write32(150994944u64, byte);
+}
+pub fn uart_get() -> i32 {
+    if (mmio32(150994968u64) & 16u32) != 0u32 { return -1; }
+    return i32(mmio32(150994944u64) & 255u32);
+}
+pub fn device_barrier() -> void { asm volatile aarch64(void, "dmb sy"); }
+pub fn timer_ticks() -> u64 {
+    unsafe { return asm volatile aarch64(u64, "isb; mrs $0, cntpct_el0" : "=r"); }
+}
+var timer_start: u64;
+var timer_rate: u64;
+pub fn timer_init() -> void {
+    unsafe {
+        timer_rate = asm volatile aarch64(u64, "mrs $0, cntfrq_el0" : "=r") / 1000u64;
+        timer_start = timer_ticks();
+    }
+}
+pub fn timer_millis() -> u64 { return (timer_ticks() - timer_start) / timer_rate; }
+pub fn current_el() -> u32 {
+    unsafe {
+        let value: u64 = asm volatile aarch64(u64, "mrs $0, CurrentEL" : "=r");
+        return u32((value >> 2) & 3u64);
+    }
+}
+pub fn semihost_exit(code: i32) -> void {
+    unsafe {
+        var block: fixedarray<u64, 2> = [131110u64, u64(i64(code))];
+        let address: ptr<u64> = &mut block[0];
+        asm volatile aarch64(void, "hlt #0xf000", 24u64, address : "{x0},{x1},~{memory}");
+        while true { asm volatile aarch64(void, "wfe"); }
+    }
+}
+fn fw_select(key: u16) -> void {
+    unsafe {
+        volatile_store(ptr_from_address<u16>(151126024u64), u16((u32(key) >> 8) | (u32(key) << 8)));
+    }
+}
+fn fw_byte() -> u32 { return u32(mmio8(151126016u64)); }
+fn fw_be32() -> u32 {
+    var value: u32 = 0;
+    var i: u32 = 0;
+    while i < 4 { value = (value << 8) | fw_byte(); i += 1; }
+    return value;
+}
+fn fw_be16() -> u16 {
+    let high: u32 = fw_byte();
+    return u16((high << 8) | fw_byte());
+}
+pub fn fw_read_file(name: str8, out: ptr<u8>, capacity: u64) -> i32 {
+    unsafe {
+        fw_select(0u16);
+        if fw_byte() != 81 || fw_byte() != 69 || fw_byte() != 77 || fw_byte() != 85 { return -1; }
+        fw_select(25u16);
+        let count: u32 = fw_be32();
+        var entry: u32 = 0;
+        while entry < count {
+            let size: u32 = fw_be32();
+            let key: u16 = fw_be16();
+            fw_be16();
+            var matches: bool = true;
+            var ended: bool = false;
+            var i: u64 = 0;
+            while i < 56 {
+                let byte: u32 = fw_byte();
+                if !ended {
+                    let expected: u32 = u32(name[i]);
+                    if byte != expected { matches = false; }
+                    if byte == 0 || expected == 0 { ended = true; }
+                }
+                i += 1;
+            }
+            if matches {
+                fw_select(key);
+                i = 0;
+                while i < u64(size) && i < capacity { out[i] = u8(fw_byte()); i += 1; }
+                return i32(size);
+            }
+            entry += 1;
+        }
+        return -1;
+    }
+}

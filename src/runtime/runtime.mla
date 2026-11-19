@@ -1,0 +1,29 @@
+// Freestanding support. abi.S exposes the C symbols used by LLVM-generated code.
+mod hal::hardware;
+use hal::hardware::*;
+extern fn firmware_stack_bottom() -> ptr<u64>;
+extern fn firmware_stack_top() -> ptr<u64>;
+pub fn app_stack_size() -> u64 {
+    unsafe { return ptr_address(firmware_stack_top()) - ptr_address(firmware_stack_bottom()); }
+}
+pub fn app_stack_peak() -> u64 {
+    unsafe {
+        var word: ptr<u64> = firmware_stack_bottom();
+        let top: u64 = ptr_address(firmware_stack_top());
+        while ptr_address(word) < top && volatile_load(word) == 6071222056853263443u64 {
+            word = word + 1;
+        }
+        return top - ptr_address(word);
+    }
+}
+pub fn app_quit() -> void { semihost_exit(0); }
+pub fn firmware_panic() -> void {
+    let message: str8 = "\n*** PANIC: MLang runtime check failed ***\n";
+    var i: u64 = 0;
+    while message[i] != 0u8 {
+        if message[i] == 10u8 { uart_put(13u32); }
+        uart_put(u32(message[i]));
+        i += 1;
+    }
+    semihost_exit(1);
+}

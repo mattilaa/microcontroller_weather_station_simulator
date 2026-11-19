@@ -6,6 +6,7 @@ those frames. No hosted MLang runtime or heap is linked into the firmware.
 """
 
 import argparse
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -20,9 +21,11 @@ def main():
     args = parser.parse_args()
     output = Path(args.output)
     ir = output.with_suffix(".ll")
+    env = os.environ.copy()
+    env["MLANG_MODULE_PATH"] = str(Path(__file__).resolve().parents[1] / "src")
     subprocess.run(
         [args.compiler, "--target-arch", "aarch64", "-O2", "-emit-llvm",
-         args.source, "-o", str(ir)], check=True,
+         args.source, "-o", str(ir)], env=env, check=True,
     )
     text = ir.read_text()
     text = re.sub(r'^target (?:datalayout|triple) = .*\n', "", text, flags=re.M)

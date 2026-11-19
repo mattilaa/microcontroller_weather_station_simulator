@@ -1,14 +1,14 @@
 // Allocation-free Ethernet/ARP/IPv4/ICMP/UDP host stack.
-mod virtio_net;
-use virtio_net::*;
-mod net_bytes;
-use net_bytes::*;
-mod service;
-use service::*;
-mod streams;
-use streams::*;
-mod weather_station;
-use weather_station::*;
+mod hal::virtio_net;
+use hal::virtio_net::*;
+mod net::bytes;
+use net::bytes::*;
+mod app::weather_service;
+use app::weather_service::*;
+mod util::text_stream;
+use util::text_stream::*;
+mod app::weather_station;
+use app::weather_station::*;
 pub struct NetStats {
     var frames_received: u32;
     var frames_sent: u32;

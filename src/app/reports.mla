@@ -1,10 +1,10 @@
 // Weather text, JSON and CSV share integer-only formatting.
-mod text;
-use text::*;
-mod weather_station;
-use weather_station::*;
-mod weather_model;
-use weather_model::*;
+mod util::text;
+use util::text::*;
+mod app::weather_station;
+use app::weather_station::*;
+mod app::weather_model;
+use app::weather_model::*;
 pub fn write_reading(out: ptr<u8>, reading: ptr<Reading>) -> void {
     unsafe {
         write_time(out, (*reading).time);

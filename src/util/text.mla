@@ -1,8 +1,8 @@
 // Allocation-free formatting over the firmware's byte-output interface.
-mod fixed_math;
-use fixed_math::*;
-mod streams;
-use streams::*;
+mod util::fixed_math;
+use util::fixed_math::*;
+mod util::text_stream;
+use util::text_stream::*;
 // Packet callers validate their buffer bounds before requesting a byte.
 pub fn app_byte_at(data: ptr<u8>, offset: u64) -> u32 {
     unsafe { return u32(data[offset]); }

@@ -1,6 +1,6 @@
 // Freestanding support. abi.S exposes the C symbols used by LLVM-generated code.
-mod hardware;
-use hardware::*;
+mod hal::hardware;
+use hal::hardware::*;
 extern fn firmware_stack_bottom() -> ptr<u64>;
 extern fn firmware_stack_top() -> ptr<u64>;
 pub fn app_stack_size() -> u64 {

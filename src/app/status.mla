@@ -1,13 +1,13 @@
-mod streams;
-use streams::*;
-mod text;
-use text::*;
-mod network;
-use network::*;
-mod virtio_net;
-use virtio_net::*;
-mod scheduler;
-use scheduler::*;
+mod util::text_stream;
+use util::text_stream::*;
+mod util::text;
+use util::text::*;
+mod net::stack;
+use net::stack::*;
+mod hal::virtio_net;
+use hal::virtio_net::*;
+mod app::scheduler;
+use app::scheduler::*;
 pub fn app_print_network(out: ptr<u8>) -> void {
     unsafe {
         write_text(out, "network: ");

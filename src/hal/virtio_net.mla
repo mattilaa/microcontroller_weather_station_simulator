@@ -1,9 +1,9 @@
 // Polled virtio 1.x MMIO NIC. Separate aligned globals keep every DMA layout
 // explicit and zero-initialized in .bss; no heap, vtables, or constructors.
-mod hardware;
-use hardware::*;
-mod net_bytes;
-use net_bytes::*;
+mod hal::hardware;
+use hal::hardware::*;
+mod net::bytes;
+use net::bytes::*;
 pub struct NicState {
     var base: u64;
     var state: u32;

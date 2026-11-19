@@ -1,6 +1,6 @@
 // Static climate presets, initialized without heap allocation or constructors.
-mod weather_model;
-use weather_model::*;
+mod app::weather_model;
+use app::weather_model::*;
 var scenario_0: Scenario = Scenario {
     name: "default",
     description: "temperate: 7..23 C, showers now and then",

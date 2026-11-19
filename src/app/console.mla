@@ -1,20 +1,20 @@
 // Console dispatch, application reports and simulation controls.
-mod weather_station;
-use weather_station::*;
-mod weather_model;
-use weather_model::*;
-mod text;
-use text::*;
-mod reports;
-use reports::*;
-mod scenarios;
-use scenarios::*;
-mod streams;
-use streams::*;
-mod runtime;
-use runtime::*;
-mod status;
-use status::*;
+mod app::weather_station;
+use app::weather_station::*;
+mod app::weather_model;
+use app::weather_model::*;
+mod util::text;
+use util::text::*;
+mod app::reports;
+use app::reports::*;
+mod app::weather_scenario;
+use app::weather_scenario::*;
+mod util::text_stream;
+use util::text_stream::*;
+mod runtime::runtime;
+use runtime::runtime::*;
+mod app::status;
+use app::status::*;
 
 pub fn print_help(out: ptr<u8>) -> void {
     write_text(out, "Commands:\n  h  help\n  s  status\n  w  weather report (latest and averages)\n  d  dump the last 8 records\n  n  network status\n  +  faster simulation, -  slower (1x = real time)\n  c  next weather scenario\n  v  toggle verbose output\n  q  quit QEMU (semihosting)\n");

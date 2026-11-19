@@ -1,14 +1,14 @@
 // Application protocol over the MLang network stack and bounded output streams.
-mod text;
-use text::*;
-mod reports;
-use reports::*;
-mod weather_station;
-use weather_station::*;
-mod weather_model;
-use weather_model::*;
-mod scenarios;
-use scenarios::*;
+mod util::text;
+use util::text::*;
+mod app::reports;
+use app::reports::*;
+mod app::weather_station;
+use app::weather_station::*;
+mod app::weather_model;
+use app::weather_model::*;
+mod app::weather_scenario;
+use app::weather_scenario::*;
 
 pub fn find_scenario_index(data: ptr<u8>, size: u64, offset: u64) -> i32 {
     unsafe {

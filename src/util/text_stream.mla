@@ -1,6 +1,6 @@
 // Bounded output streams; kind 0 is the UART, kind 1 is a UDP reply buffer.
-mod hardware;
-use hardware::*;
+mod hal::hardware;
+use hal::hardware::*;
 pub struct Output {
     var kind: u32;
     var buffer: ptr<u8>;

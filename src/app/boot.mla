@@ -1,14 +1,14 @@
 // Apply QEMU configuration supplied by the fw_cfg hardware adapter.
-mod weather_station;
-use weather_station::*;
-mod weather_model;
-use weather_model::*;
-mod service;
-use service::*;
-mod text;
-use text::*;
-mod scenarios;
-use scenarios::*;
+mod app::weather_station;
+use app::weather_station::*;
+mod app::weather_model;
+use app::weather_model::*;
+mod app::weather_service;
+use app::weather_service::*;
+mod util::text;
+use util::text::*;
+mod app::weather_scenario;
+use app::weather_scenario::*;
 
 pub fn apply_speed_switch(station: ptr<Station>, out: ptr<u8>, data: ptr<u8>, size: i32) -> void {
     unsafe {

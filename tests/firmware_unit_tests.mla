@@ -1,10 +1,10 @@
 // Host-native checks for algorithms that do not need QEMU or device registers.
-mod memory;
-use memory::*;
-mod net_bytes;
-use net_bytes::*;
-mod weather_station;
-use weather_station::*;
+mod runtime::memory;
+use runtime::memory::*;
+mod net::bytes;
+use net::bytes::*;
+mod app::weather_station;
+use app::weather_station::*;
 
 #[test]
 fn test_overlapping_moves_and_byte_memory_operations() -> i32 {

@@ -1,8 +1,8 @@
 // Deterministic weather processes and fixed-size model state.
-mod fixed_math;
-use fixed_math::*;
-mod random;
-use random::*;
+mod util::fixed_math;
+use util::fixed_math::*;
+mod util::random;
+use util::random::*;
 pub struct Scenario {
     var name: str8;
     var description: str8;

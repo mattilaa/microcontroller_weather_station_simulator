@@ -16,7 +16,7 @@ def main():
     build = compiler_root / "build"
     subprocess.run(["cmake", "--build", str(build), "--target", "mlang_std", "--parallel", "4"], check=True)
     env = os.environ.copy()
-    env["MLANG_MODULE_PATH"] = str(project / "src/mlang")
+    env["MLANG_MODULE_PATH"] = str(project / "src")
     with tempfile.TemporaryDirectory(prefix="weather-mlang-tests-") as temporary:
         subprocess.run([str(build / "mlang"), "--tests", str(project / "tests/firmware_unit_tests.mla"),
                         "-L", str(build), "-lmlang_std"], cwd=temporary, env=env, check=True)

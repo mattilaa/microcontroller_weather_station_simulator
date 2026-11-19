@@ -50,12 +50,12 @@ else()
     find_program(MLANG_CLANG clang HINTS ${LLVM_HINTS} REQUIRED)
 endif()
 message(STATUS "MLang IR compiler: ${MLANG_CLANG}")
-file(GLOB MLANG_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/mlang/*.mla")
+file(GLOB_RECURSE MLANG_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.mla")
 set(MLANG_OBJECT "${CMAKE_CURRENT_BINARY_DIR}/weather_mlang.o")
 add_custom_command(OUTPUT "${MLANG_OBJECT}"
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_mlang.py"
         --compiler "${MLANG_COMPILER}" --clang "${MLANG_CLANG}"
-        --source "${CMAKE_CURRENT_SOURCE_DIR}/src/mlang/application.mla"
+        --source "${CMAKE_CURRENT_SOURCE_DIR}/src/main.mla"
         --output "${MLANG_OBJECT}"
     DEPENDS ${MLANG_SOURCES} "${MLANG_COMPILER}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_mlang.py"
     BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/weather_mlang.ll"

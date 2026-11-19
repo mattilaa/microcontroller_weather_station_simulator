@@ -45,7 +45,7 @@ clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
 Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
 Subsequent firmware builds recompile changed `.mla` modules automatically.
 
-The firmware implementation lives in `src/mlang/`, rooted at `application.mla`.
+The firmware implementation lives in `src/`, rooted at `main.mla`.
 No C++ firmware sources are compiled. Static globals and `fixedarray<T, N>` hold
 the log, scheduler state, packet buffers, and aligned virtio DMA queues. Climate
 presets are initialized statically; model seeds and sensor settings are applied
@@ -369,27 +369,27 @@ tests/libraries/                    Python keyword libraries: QEMU/UART driver, 
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: FLASH at 0x40000000, 32 KiB RAM at 0x40100000
-src/startup.S                       _start: set up stack/RAM, park secondary cores, call main
-src/runtime/abi.S                   C runtime symbol aliases and linker-address accessors
-src/mlang/application.mla           station initialization and cooperative main loop
-src/mlang/hardware.mla              UART, generic timer, fw_cfg, MMIO and semihosting
-src/mlang/virtio_net.mla             aligned DMA queues and polled virtio-net driver
-src/mlang/network.mla               Ethernet, ARP, IPv4, ICMP and UDP stack
-src/mlang/net_bytes.mla             byte-wise packet fields and Internet checksums
-src/mlang/scenarios.mla             statically initialized climate presets
-src/mlang/weather_model.mla         deterministic daily cycles and random processes
-src/mlang/weather_station.mla       sensors, aggregation, packed records and fixed-capacity log
-src/mlang/scheduler.mla             fixed task table and deadlines
-src/mlang/streams.mla               UART output and bounded caller-owned reply buffers
-src/mlang/service.mla               UDP application command protocol
-src/mlang/console.mla               console commands and simulation controls
-src/mlang/reports.mla               weather reports and JSON/CSV formatting
-src/mlang/text.mla                  allocation-free integer and text formatting
-src/mlang/memory.mla                memcpy/memmove/memset/memcmp implementations
-src/mlang/runtime.mla               stack high-water mark, panic and exit
-src/mlang/fixed_math.mla             integer trigonometry, clamping and rounding
-src/mlang/random.mla                deterministic PRNG and sensor noise
-src/mlang/boot.mla                  boot speed/scenario configuration
-tests/firmware_unit_tests.mla       portable MLang regression tests
-tools/test_mlang.py                 host-native test runner
+src/startup.S                      _start: set up stack/RAM, park secondary cores, call main
+src/runtime/abi.S                  C runtime symbol aliases and linker-address accessors
+src/main.mla                       station initialization and cooperative main loop
+src/hal/hardware.mla               UART, generic timer, fw_cfg, MMIO and semihosting
+src/hal/virtio_net.mla             aligned DMA queues and polled virtio-net driver
+src/net/stack.mla                  Ethernet, ARP, IPv4, ICMP and UDP stack
+src/net/bytes.mla                  byte-wise packet fields and Internet checksums
+src/app/weather_scenario.mla       statically initialized climate presets
+src/app/weather_model.mla          deterministic daily cycles and random processes
+src/app/weather_station.mla        sensors, aggregation, packed records and fixed-capacity log
+src/app/scheduler.mla              fixed task table and deadlines
+src/util/text_stream.mla           UART output and bounded caller-owned reply buffers
+src/app/weather_service.mla        UDP application command protocol
+src/app/console.mla                console commands and simulation controls
+src/app/reports.mla                weather reports and JSON/CSV formatting
+src/util/text.mla                  allocation-free integer and text formatting
+src/runtime/memory.mla             memcpy/memmove/memset/memcmp implementations
+src/runtime/runtime.mla            stack high-water mark, panic and exit
+src/util/fixed_math.mla            integer trigonometry, clamping and rounding
+src/util/random.mla                deterministic PRNG and sensor noise
+src/app/boot.mla                   boot speed/scenario configuration
+tests/firmware_unit_tests.mla      portable MLang regression tests
+tools/test_mlang.py                host-native test runner
 ```

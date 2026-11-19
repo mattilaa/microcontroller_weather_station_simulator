@@ -1,10 +1,10 @@
 // Sensor sampling and time-weighted ten-minute aggregation.
-mod weather_model;
-use weather_model::*;
-mod fixed_math;
-use fixed_math::*;
-mod random;
-use random::*;
+mod app::weather_model;
+use app::weather_model::*;
+mod util::fixed_math;
+use util::fixed_math::*;
+mod util::random;
+use util::random::*;
 pub struct Clouds {
     var cirrus: i32;
     var altostratus: i32;

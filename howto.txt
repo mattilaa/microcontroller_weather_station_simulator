@@ -17,11 +17,13 @@ RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   cmake -B build -DSIM_SPEED=600 && cmake --build build --target run   # 10 min/s
   echo weather | nc -u -w1 127.0.0.1 5555           # in another terminal
 
-WEATHER SCENARIOS (default, summer_heat, winter_high, storm, thunderstorm)
+WEATHER SCENARIOS (default, summer_heat, winter_high, storm, thunderstorm, mcs, supercell)
   python tools/weather_tool.py demo --scenario summer_heat     # very hot summer day
   python tools/weather_tool.py demo --scenario winter_high     # cold winter high pressure
-  python tools/weather_tool.py demo --scenario storm           # severe storm, gales, deep low
-  python tools/weather_tool.py demo --scenario thunderstorm    # afternoon thunderstorms
+  python tools/weather_tool.py demo --scenario storm           # cirrus first, then gales and a deep low
+  python tools/weather_tool.py demo --scenario thunderstorm    # anvil cirrus, then afternoon thunderstorms
+  python tools/weather_tool.py demo --scenario mcs             # anvil cirrus, extreme gust front, trailing rain
+  python tools/weather_tool.py demo --scenario supercell       # extreme winds all storm, tornado at the end
   python tools/weather_tool.py record --scenario storm --speed 3600 --hours 24   # live
   cmake -B build -DSIM_SCENARIO=storm && cmake --build build --target run        # in QEMU
   # while running: console key 'c' cycles, or: echo "scenario storm" | nc -u -w1 127.0.0.1 5555

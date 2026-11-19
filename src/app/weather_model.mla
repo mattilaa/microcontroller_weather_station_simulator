@@ -36,6 +36,40 @@ pub struct Scenario {
     var pressure_dip: i32;
 
     var cirrus_mean: i32;
+
+    // Per mille of the weather that arrives with the low (pressure_dip):
+    // 0 = the same all day; 1000 = calm under thickening cirrus first, then
+    // the full cloud, rain and wind as the pressure falls, clearing again
+    // as it rises.
+    var frontal: i32;
+
+    // A scripted convective storm on top of the weather: EVENT_NONE,
+    // EVENT_MCS or EVENT_SUPERCELL, arriving event_start minutes after the
+    // switch (and at that time each day) and lasting event_length minutes.
+    var event: i32;
+    var event_start: i32;
+    var event_length: i32;
+};
+
+pub cexpr fn EVENT_NONE() -> i32 { return 0; }
+pub cexpr fn EVENT_MCS() -> i32 { return 1; }
+pub cexpr fn EVENT_SUPERCELL() -> i32 { return 2; }
+
+// What a storm event does right now. Zero fields leave the weather alone;
+// direction -1 keeps the wind's own direction.
+pub struct StormEvent {
+    var cloud: i32;
+    var cumulonimbus: i32;
+    var nimbostratus: i32;
+    var convection: i32;
+    var rain: i32;
+    var wind: i32;
+    var gust_boost: i32;
+    var direction: i32;
+    var cooling: i32;
+    var pressure: i32;
+    var anvil: i32;
+    var tornado: i32;
 };
 pub struct Conditions {
     var temperature: i32;
@@ -68,6 +102,8 @@ pub struct Conditions {
     var nimbostratus_top: i32;
     var altocumulus_base: i32;
     var altocumulus_top: i32;
+
+    var tornado: i32;
 };
 pub struct Levels { var base: i32;
     var top: i32;
@@ -98,6 +134,9 @@ pub struct Model {
     var _cell: i32;
     var _gust_rng: u32;
     var _gust_factor: i32;
+    // Thunderstorm anvil cirrus, 0..1000 * FINE: spreads ahead of the
+    // cumulonimbus and thins slowly after it. Deterministic.
+    var _anvil: i32;
     var _rain_fallen: i64;
     var _conditions: Conditions;
 };
@@ -209,11 +248,158 @@ pub fn daily_mean_wind(model: ptr<Model>, minute_of_day: u32) -> i32 {
 }
 
 pub fn cloudiness(model: ptr<Model>) -> i32 {
+    var cloud: i32 = cloudiness_at(model, minute_of_day(model));
+    var event: StormEvent = StormEvent { direction: -1 };
+    storm_event_into(model, &mut event);
+    return cloud > event.cloud ? cloud : event.cloud;
+}
+
+// Minutes from the scenario's storm event (negative before it), repeating
+// daily.
+pub fn event_minute(model: ptr<Model>) -> i32 {
+    unsafe {
+        var since: i32 = (i32((((*model)._sim_seconds - (*model)._scenario_start) % SECONDS_PER_DAY()))) / 60;
+        var t: i32 = since - (*(*model)._scenario).event_start;
+        // Lead-ins wrap across midnight of the scenario day.
+        if (t < -720) { t = t + 1440; }
+        if (t >= 720) { t = t - 1440; }
+        return t;
+    }
+}
+
+// A mesoscale convective system (MCS) passes: its anvil cirrus shield
+// spreads for ~5 hours ahead; the gust front brings the most extreme wind
+// and a line of cumulonimbus with a cloudburst; behind it a long trailing
+// region of nimbostratus rain as the wind dies down. Pressure jumps under
+// the cold outflow (meso-high), then a wake low follows.
+pub fn mcs_event(t: i32, length: i32) -> StormEvent {
+    var e: StormEvent = StormEvent { direction: -1 };
+    if (t >= -300 && t < 0) {
+        var lead: i32 = (t + 300) * 1000 / 300;
+        e.anvil = 950 * lead / 1000;
+        e.convection = 500 * lead / 1000;
+        e.wind = 300 + 300 * lead / 1000;       // warm, humid inflow
+        e.direction = 170;
+    } else if (t >= 0 && t < length) {
+        var p: i32 = t * 1000 / length;
+        var decay: i32 = (1000 - p) * (1000 - p) / 1000;
+        e.cloud = p < 800 ? 1000 : 1000 - (p - 800) * 5 / 2;
+        var line: i32 = t < 60 ? 1000 - t * 1000 / 60 : 0;
+        e.cumulonimbus = 950 * line / 1000;
+        e.nimbostratus = 1000 - e.cumulonimbus;
+        e.convection = 1000 * line / 1000;
+        e.rain = t < 60 ? 4500 - t * 4000 / 60 : 500 * (1000 - p) / 1000;
+        e.wind = 400 + 2400 * decay / 1000;
+        e.gust_boost = 1000 + 400 * decay / 1000;
+        e.direction = t < 120 ? 290 : -1;
+        e.cooling = t < 15 ? 800 * t / 15 : 800 - 400 * p / 1000;
+        e.pressure = p < 250 ? 40 : (p < 700 ? 40 - (p - 250) * 70 / 450 : -30);
+        e.anvil = 900;
+    } else if (t >= length && t < length + 120) {
+        var after: i32 = (length + 120 - t) * 1000 / 120;
+        e.cloud = 500 * after / 1000;
+        e.nimbostratus = 600 * after / 1000;
+        e.pressure = -30 * after / 1000;
+        e.cooling = 400 * after / 1000;
+    }
+    return e;
+}
+
+// A supercell passes: its isolated anvil spreads ~4 hours ahead while warm
+// inflow strengthens from the southeast; then one rotating cumulonimbus
+// tower brings extreme wind for the whole storm, torrential rain and hail
+// in the forward flank, and in its rear flank a tornado to end it. It
+// clears quickly behind.
+pub fn supercell_event(t: i32, length: i32) -> StormEvent {
+    var e: StormEvent = StormEvent { direction: -1 };
+    if (t >= -240 && t < 0) {
+        var lead: i32 = (t + 240) * 1000 / 240;
+        e.anvil = 850 * lead / 1000;
+        e.convection = 900 * lead / 1000;
+        e.cloud = 350 * lead / 1000;
+        e.wind = 400 + 500 * lead / 1000;
+        e.direction = 140;
+    } else if (t >= 0 && t < length) {
+        var p: i32 = t * 1000 / length;
+        e.cloud = 1000;
+        e.cumulonimbus = 1000;
+        e.convection = 1000;
+        e.rain = p < 600 ? 1500 + 5000 * (p < 300 ? p : 600 - p) / 300 : 300;
+        e.wind = 2400;
+        e.gust_boost = 1300;
+        e.direction = p < 500 ? 140 : 300;
+        e.cooling = p < 600 ? 700 : 400;
+        e.pressure = -40;
+        e.anvil = 1000;
+        if (t >= length - 15) {
+            // The tornado: violent wind and a sharp pressure drop.
+            e.wind = 3800;
+            e.gust_boost = 1400;
+            e.pressure = -220;
+            e.direction = 140 + (t - (length - 15)) * 72;
+            e.tornado = 1;
+        }
+    } else if (t >= length && t < length + 60) {
+        var after: i32 = (length + 60 - t) * 1000 / 60;
+        e.cloud = 400 * after / 1000;
+        e.cooling = 400 * after / 1000;
+        e.wind = 300;
+    }
+    return e;
+}
+
+pub fn event_at(kind: i32, t: i32, length: i32) -> StormEvent {
+    if (kind == EVENT_MCS()) { return mcs_event(t, length); }
+    if (kind == EVENT_SUPERCELL()) { return supercell_event(t, length); }
+    return StormEvent { direction: -1 };
+}
+
+// The current scenario's storm event, written to `out`.
+pub fn storm_event_into(model: ptr<Model>, out: ptr<StormEvent>) -> void {
+    unsafe {
+        var kind: i32 = (*(*model)._scenario).event;
+        var length: i32 = (*(*model)._scenario).event_length;
+        var t: i32 = event_minute(model);
+        *out = event_at(kind, t, length);
+    }
+}
+
+// Cloudiness with the convection of another time of day (for looking ahead).
+pub fn cloudiness_at(model: ptr<Model>, minute: u32) -> i32 {
     unsafe {
         var convective: i32 =
-            (*(*model)._scenario).convective_cloud * daily_convection(minute_of_day(model)) / 1000 *
+            (*(*model)._scenario).convective_cloud * daily_convection(minute) / 1000 *
             (*(*model)._scenario).convection / 1000 * ((*model)._cell / FINE()) / 1000;
-        return clamp((*model)._cloud / FINE() + convective, 0, 1000);
+        // Ahead of a frontal storm only a fifth of the cloud is there.
+        var lull: i32 = (*(*model)._scenario).frontal * (1000 - storm_arrival(model)) / 1000;
+        return clamp(((*model)._cloud / FINE() + convective) * (1000 - lull * 4 / 5) / 1000, 0, 1000);
+    }
+}
+
+// Phase of the scenario's pressure cycle in degrees: 0 at the switch, 180
+// (lowest pressure) 12 hours later.
+pub fn low_phase(model: ptr<Model>) -> i32 {
+    unsafe {
+        return (i32((((*model)._sim_seconds - (*model)._scenario_start) % SECONDS_PER_DAY()))) / 240;
+    }
+}
+
+// How far a frontal storm has arrived, 0..1000: none until the pressure has
+// fallen 40 % of the way to the low (about 6 hours after the switch), all
+// of it from 80 % (about 8.5 hours), and gone again as the pressure rises.
+pub fn storm_arrival(model: ptr<Model>) -> i32 {
+    var fallen: i32 = (SIN_SCALE() - cos_deg(low_phase(model))) * 1000 / (2 * SIN_SCALE());
+    return clamp((fallen - 400) * 1000 / 400, 0, 1000);
+}
+
+// Cirrus ahead of a frontal storm, 0..1000: the low's cirrus shield spreads
+// hours before its rain and wind, from about 2 hours before the switch
+// until the storm closes in.
+pub fn prefrontal_cirrus(model: ptr<Model>) -> i32 {
+    unsafe {
+        var ahead: i32 = clamp(sin_deg(low_phase(model) + 60) * 1000 / (SIN_SCALE() * 2 / 3), 0, 1000);
+        return (*(*model)._scenario).frontal * 900 / 1000 * ahead / 1000 *
+            (1000 - storm_arrival(model)) / 1000;
     }
 }
 
@@ -231,6 +417,7 @@ pub fn set_scenario(model: ptr<Model>, chosen: ptr<Scenario>) -> void {
         (*model)._prevailing = (*chosen).prevailing * FINE();
         (*model)._cirrus = (*chosen).cirrus_mean * FINE();
         (*model)._pressure = (*chosen).pressure_mean * FINE();
+        (*model)._anvil = 0;
         update_conditions(model);
     }
 }
@@ -391,6 +578,28 @@ pub fn step(model: ptr<Model>, dt: u32) -> void {
 
         (*model)._gust_factor = between(&mut (*model)._gust_rng, 1100, 1400);
 
+        // Anvil cirrus spreads ahead of a growing thunderstorm near the
+        // tropopause, so the cirrus thickens before its cumulonimbus is
+        // overhead. It follows the convection 90 minutes ahead: once the
+        // cloud then would be within 150 per mille of the thunderstorm
+        // threshold, with at least half the convection the storm needs.
+        // Spreads in ~20 minutes, thins over ~2 hours.
+        var ahead: u32 = (minute_of_day(model) + 90) % MINUTES_PER_DAY();
+        var convection_now: i32 =
+            daily_convection(ahead) * (*(*model)._scenario).convection / 1000;
+        var approach: i32 = cloudiness_at(model, ahead) - ((*(*model)._scenario).storm_cloud - 150);
+        var anvil_target: i32 =
+            approach > 0 && convection_now > (*(*model)._scenario).storm_convection / 2
+            ? clamp(approach * 5, 0, 1000) * FINE()
+            : 0;
+        var anvil_event: StormEvent = StormEvent { direction: -1 };
+        storm_event_into(model, &mut anvil_event);
+        var event_anvil: i32 = anvil_event.anvil * FINE();
+        if (event_anvil > anvil_target) { anvil_target = event_anvil; }
+        (*model)._anvil = anvil_target > (*model)._anvil
+            ? revert((*model)._anvil, anvil_target, dt, 20 * 60, 0)
+            : revert((*model)._anvil, anvil_target, dt, 2 * 3600, 0);
+
         (*model)._cell = clamp(
         revert((*model)._cell, 450 * FINE(), dt, 40 * 60, gaussian(&mut (*model)._cell_rng, 67 * FINE())),
             0,
@@ -407,6 +616,8 @@ pub fn update_conditions(model: ptr<Model>) -> void {
     unsafe {
         var minute: u32 = minute_of_day(model);
         var cloud: i32 = cloudiness(model);
+        var event: StormEvent = StormEvent { direction: -1 };
+        storm_event_into(model, &mut event);
 
         let sc: Scenario = * (*model)._scenario;
 
@@ -414,12 +625,13 @@ pub fn update_conditions(model: ptr<Model>) -> void {
             cloud > sc.rain_threshold
         ?(cloud - sc.rain_threshold) * sc.rain_per_cloud / 1000
         : 0;
+        if (event.rain > rain_rate) { rain_rate = event.rain; }
 
         var clear_sky_swing: i32 =
             daily_temperature(model, minute) - sc.temperature_mean;
         var temperature: i32 = sc.temperature_mean +
             clear_sky_swing * (1000 - cloud / 4) / 1000 +
-            (*model)._front / FINE() - rain_rate / 4;
+            (*model)._front / FINE() - clamp(rain_rate, 0, 1200) / 4 - event.cooling;
 
         var humidity: i32 =
             sc.humidity_base -
@@ -429,6 +641,7 @@ pub fn update_conditions(model: ptr<Model>) -> void {
 
         var relative_humidity: i32 = clamp(humidity, 1500, 10000);
         var convection: i32 = daily_convection(minute) * sc.convection / 1000;
+        if (event.convection > convection) { convection = event.convection; }
         var cumulonimbus: i32 = 0;
         if(cloud > sc.storm_cloud && convection > sc.storm_convection) {
             cumulonimbus = clamp(
@@ -436,11 +649,17 @@ pub fn update_conditions(model: ptr<Model>) -> void {
                 0,
                 cloud);
         }
+        if (event.cumulonimbus > 0) {
+            cumulonimbus = clamp(cloud * event.cumulonimbus / 1000, cumulonimbus, cloud);
+        }
         var layered: i32 = cloud - cumulonimbus;
         var nimbostratus: i32 =
             rain_rate > 0 ? clamp((cloud - 600) * 3, 0, layered) *
             (1000 - convection) / 1000
         : 0;
+        if (event.nimbostratus > 0) {
+            nimbostratus = clamp(cloud * event.nimbostratus / 1000, nimbostratus, layered);
+        }
         var rest: i32 = layered - nimbostratus;
         var cumulus: i32 = rest * convection / 1000;
         var stratiform: i32 = rest - cumulus;
@@ -453,16 +672,26 @@ pub fn update_conditions(model: ptr<Model>) -> void {
         var middle: i32 = stratiform - low;
         var altocumulus: i32 = middle * (300 + 400 * convection / 1000) / 1000;
         var altostratus: i32 = middle - altocumulus;
+        // High cloud: drifting cirrus, a frontal storm's cirrus shield and
+        // any thunderstorm anvil, each covering part of the clear sky.
         var cirrus: i32 = (*model)._cirrus / FINE();
+        var shield: i32 = prefrontal_cirrus(model);
+        cirrus = cirrus + shield * (1000 - cirrus) / 1000;
+        var anvil: i32 = (*model)._anvil / FINE();
+        cirrus = cirrus + anvil * (1000 - cirrus) / 1000;
 
-        var pressure: i32 = (*model)._pressure / FINE();
+        var pressure: i32 = (*model)._pressure / FINE() + event.pressure;
         var lcl: i32 = lcl_hpa(relative_humidity, pressure);
 
         var cumulus_top: i32 =
             clamp(lcl - 80 - 270 * convection / 1000, 450, lcl);
 
         var cirrus_half: i32 = 15 + 60 * cirrus / 1000;
+        // An anvil spreads at the tropopause, lifting the cirrus toward
+        // 220 hPa; a cirrus shield thickens downward toward 330 hPa.
         var cirrus_level: i32 = (*model)._cirrus_level / FINE();
+        cirrus_level = cirrus_level - (cirrus_level - 220) * anvil / 1000;
+        cirrus_level = cirrus_level + (330 - cirrus_level) * shield / 2000;
         var cirrus_base: i32 =
             clamp(cirrus_level + cirrus_half, cirrus_level, CIRRUS_LOWEST());
         var cirrus_top: i32 =
@@ -480,16 +709,29 @@ pub fn update_conditions(model: ptr<Model>) -> void {
 
         var sky: i32 = cloud + cirrus / 2 * (1000 - cloud) / 1000;
 
+        // Ahead of a frontal storm the wind is a quarter of its strength.
+        var calm: i32 = sc.frontal * (1000 - storm_arrival(model)) / 1000;
+        var wind_scale: i32 = 1000 - calm * 3 / 4;
+        var wind_now: i32 = ((*model)._sustained_wind + (*model)._gust) / FINE() * wind_scale / 1000;
+        // A storm event sets the wind; the regular wind adds its variation.
+        var gust_boost: i32 = 1000;
+        if (event.wind > 0) {
+            wind_now = event.wind + wind_now / 4;
+        }
+        if (event.gust_boost > 0) { gust_boost = event.gust_boost; }
+        var direction: i32 = (*model)._prevailing / FINE() / 10;
+        if (event.direction >= 0) { direction = event.direction; }
+
         (*model)._conditions = Conditions {
             temperature: temperature,
                 humidity: relative_humidity,
-                wind_speed: clamp(((*model)._sustained_wind + (*model)._gust) / FINE(), 0, 4000),
+                wind_speed: clamp(wind_now, 0, 6000),
                 wind_gust: clamp(
-            ((*model)._sustained_wind + (*model)._gust) / FINE() * (*model)._gust_factor / 1000,
+            wind_now * (*model)._gust_factor / 1000 * gust_boost / 1000,
                 0,
-                6000),
+                9000),
                 wind_direction:
-            wrap((*model)._prevailing / FINE() / 10 + (*model)._vane_swing, 360),
+            wrap(direction + (*model)._vane_swing, 360),
                 rain_rate: rain_rate,
                 pressure: pressure,
                 cloud_cover: sky,
@@ -515,7 +757,8 @@ pub fn update_conditions(model: ptr<Model>) -> void {
             .base,
                 altocumulus_top:
             altocumulus_levels(altostratus_base, altostratus_top, altocumulus)
-            .top
+            .top,
+                tornado: event.tornado
         };
     }
 }

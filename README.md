@@ -140,8 +140,10 @@ gusts, how the wind turns, and surface pressure.
 | `default` | temperate, showers now and then | 5–24 °C, a few mm of rain, ~1013 hPa |
 | `summer_heat` | very hot summer day, dry and mostly clear, afternoon cumulus | 20–36 °C, humidity down to ~22 %, no rain, ~1018 hPa |
 | `winter_high` | cold winter high pressure: calm, clear, frost fog/stratus at night, no convection | −16 to −8 °C, 1031–1044 hPa, wind under 3 m/s |
-| `storm` | severe storm: a deep low deepens and fills, gales, overcast nimbostratus, heavy rain, wind veering SSW → NW | ~966 hPa at its deepest, mean wind 17 m/s, gusts to ~30 m/s, ~55 mm of rain |
-| `thunderstorm` | hot, humid day: towering cumulonimbus cells (each lasting tens of minutes), cloudbursts, gusts, rain cooling | 15–28 °C, cumulonimbus up to ~65 %, gusts to ~13 m/s |
+| `storm` | severe storm: a deep low passes. A calm morning under the low's thickening cirrus shield, then (about 6 hours after the switch) gales, overcast nimbostratus, heavy rain and wind veering SSW → NW, clearing as the low fills | ~966 hPa at its deepest, ~4 m/s under ~90 % cirrus before it, then 15–24 m/s with gusts to ~37 m/s, ~25 mm of rain |
+| `mcs` | an approaching mesoscale convective system (8 hours after the switch): its anvil cirrus spreads for ~5 hours ahead; the gust front brings the most extreme wind, a cold outflow, a pressure jump and a line of cumulonimbus with a cloudburst; then ~5 hours of trailing nimbostratus rain as the wind dies down, and a wake low | ~25 m/s at the gust front with gusts to ~55 m/s, ~6 m/s four hours later, ~8 °C cooling, ~40 mm of rain |
+| `supercell` | a supercell (10 hours after the switch): an isolated anvil and strengthening southeasterly inflow for ~4 hours, then 90 minutes of one rotating cumulonimbus tower with extreme wind throughout, torrential rain and hail in its forward flank, and a tornado in its last 15 minutes. It clears quickly behind | ~25 m/s for the whole storm, ~35 mm of rain in an hour, the tornado: gusts to ~75 m/s and a ~20 hPa pressure drop |
+| `thunderstorm` | hot, humid day: anvil cirrus spreads about 2 hours ahead of towering cumulonimbus cells (each lasting tens of minutes), cloudbursts, gusts, rain cooling | 15–28 °C, cirrus ~90 % before the storm, cumulonimbus up to ~65 %, gusts to ~13 m/s |
 
 How to choose one:
 - **QEMU command line:** `-fw_cfg name=opt/weather/scenario,string=storm`, read at boot like
@@ -155,7 +157,8 @@ Switching jumps the slow random processes to the new climate's means; the clock 
 `default` reproduces the original weather exactly, with the same random sequence.
 
 A barometer measures the surface pressure (0.1 hPa). It drifts around the scenario's mean,
-and a storm's low deepens over 12 hours and fills over the next 12. The cloud base (LCL) is
+and a storm's low deepens over 12 hours and fills over the next 12. The storm's cloud, rain
+and wind arrive with the falling pressure: before them, only its cirrus shield. The cloud base (LCL) is
 computed from the actual surface pressure, and the chart's wind panel shows the pressure on
 a right-hand hPa axis.
 
@@ -170,7 +173,7 @@ a right-hand hPa axis.
 | Wind direction | a prevailing direction (starting SW) that drifts slowly; the vane swings ~30° in calm air but only a few degrees in strong wind |
 | Cloud cover | low and middle cloud follows a slowly wandering trend; showers build and clear over hours. The sky imager reports total cover in whole percent, counting thin cirrus half |
 | Cloud layers | the cloudiness is split into ten types, each at its own level. Splitting it leaves the total, and so the rain, unchanged |
-| High | **cirrus**, wispy ice cloud drifting around 270 hPa (10 km) |
+| High | **cirrus**, wispy ice cloud drifting around 270 hPa (10 km). It thickens ahead of storms: a frontal low's cirrus shield spreads hours before its rain (lower, toward 330 hPa), and a thunderstorm's anvil spreads about 2 hours before its cumulonimbus (higher, toward the tropopause) and thins slowly after it |
 | Middle | **altostratus**, a sheet drifting around 580 hPa (4.5 km), and **altocumulus**, patchy and lumpy just above its middle, more of it in the daytime |
 | Low | **stratus**, a shallow grey sheet just above the cloud base in very humid air (down to fog); **stratocumulus**, a lumpy low layer in less humid air |
 | Rain cloud | **nimbostratus** in steady, non-convective rain, from the cloud base up into the middle deck |
@@ -193,7 +196,7 @@ listens on port 5000; each datagram is one command:
 
 | Command | Reply |
 |---------|-------|
-| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_gust":4.90,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"pressure":1013.2,"speed":1,"scenario":"default"}` |
+| `weather` | the latest sample: `{"day":1,"time":"06:10:05","temperature":12.34,"humidity":71.20,"wind_speed":3.42,"wind_gust":4.90,"wind_direction":225,"wind_compass":"SW","rain":0.40,"rain_today":1.20,"cloud_cover":63,"lcl":912,"cirrus":25,"altostratus":20,"cumulus":30,"cumulus_top":650,"cumulonimbus":0,"cirrus_base":300,"cirrus_top":240,"altostratus_base":640,"altostratus_top":520,"stratus":5,"stratocumulus":12,"nimbostratus":0,"altocumulus":4,"stratus_top":880,"stratocumulus_top":830,"nimbostratus_top":520,"altocumulus_base":593,"altocumulus_top":552,"pressure":1013.2,"tornado":0,"speed":1,"scenario":"default"}` |
 | `time HH:MM` | `ok time HH:MM`: jumps the simulated clock |
 | `log [sequence]` | one page (up to 9 rows) of 10-minute records as CSV, from `sequence`; the header line `log next=N count=C` says where to continue |
 | `advance MINUTES` | fast-forwards the simulation instantly (10…4320 minutes), logging the records |
@@ -220,7 +223,9 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
 - **Cloud panel** (with cloud layer data): a time-height cross-section on a log-pressure
   axis, 1000 hPa at the bottom to 200 hPa at the top, with km on the right. Each 10-minute
   record is one column, with no smoothing between records. Every cloud type spans its own
-  base and top for that record, more opaque the more cloud there is:
+  base and top for that record. All types share one grey colour scale: their thickness adds
+  up, and the denser the cloud, the darker it is, from pale thin cirrus to near-black
+  cumulonimbus. More of a type is denser:
   - cirrus is wispy and densest in its middle, drifting around 10 km
   - altostratus is an undulating sheet, with patchy altocumulus in it
   - stratus and stratocumulus are low layers resting on the cloud base
@@ -228,11 +233,12 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   - cumulus has a flat base on the LCL and a soft, billowing top
   - cumulonimbus is a dark tower from the cloud base to the tropopause
 
-  The LCL (cloud base) is a dashed line.
+  The LCL (cloud base) is a dashed line, and a tornado is a red funnel to the ground.
 - **Bottom panel:** wind. The solid line (with a light fill) is each 10-minute record's mean
   wind. The dotted line is its gust, the highest peak wind in the interval, so the two
   don't mix. Hourly arrows point where the wind blows to, with the hourly mean speed under
-  each arrow. Surface pressure runs on the right-hand hPa axis.
+  each arrow. Surface pressure runs on the right-hand hPa axis. A tornado gets a red band
+  and label.
 - **Time axis:** a dashed line at each midnight.
 
 With the [virtual environment](#build-and-run-both-platforms) set up and active:
@@ -255,7 +261,7 @@ python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 -
 ```
 
 The CSV columns are
-`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure,wind_gust`
+`seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure,wind_gust,tornado`
 (cloud levels in hPa, cloud amounts in %, surface pressure in hPa with one decimal). Older CSVs without the newer columns at the end
 still plot: without layer levels the cirrus and altostratus fall back to fixed levels, and
 without any cloud columns there's no cloud panel.
@@ -296,7 +302,7 @@ UART and over Ethernet:
 | `console.robot` | every console command, history capping, averages, the quit exit code |
 | `weather.robot` | value ranges, daily temperature cycle, humidity vs. temperature, wind behaviour, setting the clock, rain showers and tipping-bucket amounts, cloud cover in rain, cloud layers at their levels, afternoon cumulus, cumulonimbus only in rain-bearing cloud, high and middle layers drifting and thickening, stratus in humid air, nimbostratus only with rain-bearing cloud, lower cloud base in humid air, daily rain totals, the log and fast-forward |
 | `realtime.robot` | real time by default, the QEMU speed switch, the fastest speed (72000×), changing speed over UDP and from the console, records as means of their samples |
-| `scenarios.robot` | each scenario's character over a simulated day (heat, cold high pressure, storm low/gales/rain/veering, thunderstorm cumulonimbus/cloudbursts), the boot switch, the commands and the console key |
+| `scenarios.robot` | each scenario's character over a simulated day (heat, cold high pressure, storm cirrus first then low/gales/rain/veering, thunderstorm anvil cirrus first then cumulonimbus/cloudbursts), the boot switch, the commands and the console key |
 | `tools.robot` | `weather_tool.py demo` and `record` end to end (QEMU, import over UDP, plot), recording at 72000× without losing records, and replotting a CSV |
 | `ethernet.robot` | gratuitous ARP, ARP replies, ping (incl. large and 40 in a row), UDP commands, dropping corrupted or misaddressed packets |
 | `image.robot` | load address, no RTTI, exception, heap or guard symbols, empty `.init_array`, flash size budget, RAM within 32 KiB, `.data` loaded from flash |
@@ -398,11 +404,13 @@ RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   cmake -B build -DSIM_SPEED=600 && cmake --build build --target run   # 10 min/s
   echo weather | nc -u -w1 127.0.0.1 5555           # in another terminal
 
-WEATHER SCENARIOS (default, summer_heat, winter_high, storm, thunderstorm)
+WEATHER SCENARIOS (default, summer_heat, winter_high, storm, thunderstorm, mcs, supercell)
   python tools/weather_tool.py demo --scenario summer_heat     # very hot summer day
   python tools/weather_tool.py demo --scenario winter_high     # cold winter high pressure
-  python tools/weather_tool.py demo --scenario storm           # severe storm, gales, deep low
-  python tools/weather_tool.py demo --scenario thunderstorm    # afternoon thunderstorms
+  python tools/weather_tool.py demo --scenario storm           # cirrus first, then gales and a deep low
+  python tools/weather_tool.py demo --scenario thunderstorm    # anvil cirrus, then afternoon thunderstorms
+  python tools/weather_tool.py demo --scenario mcs             # anvil cirrus, extreme gust front, trailing rain
+  python tools/weather_tool.py demo --scenario supercell       # extreme winds all storm, tornado at the end
   python tools/weather_tool.py record --scenario storm --speed 3600 --hours 24   # live
   cmake -B build -DSIM_SCENARIO=storm && cmake --build build --target run        # in QEMU
   # while running: console key 'c' cycles, or: echo "scenario storm" | nc -u -w1 127.0.0.1 5555

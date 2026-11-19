@@ -25,7 +25,11 @@ var scenario_0: Scenario = Scenario {
     veering: 0,
     pressure_mean: 10132,
     pressure_dip: 0,
-    cirrus_mean: 250
+    cirrus_mean: 250,
+    frontal: 0,
+    event: 0,
+    event_start: 0,
+    event_length: 0
 };
 var scenario_1: Scenario = Scenario {
     name: "summer_heat",
@@ -51,7 +55,11 @@ var scenario_1: Scenario = Scenario {
     veering: 0,
     pressure_mean: 10195,
     pressure_dip: 20,
-    cirrus_mean: 120
+    cirrus_mean: 120,
+    frontal: 0,
+    event: 0,
+    event_start: 0,
+    event_length: 0
 };
 var scenario_2: Scenario = Scenario {
     name: "winter_high",
@@ -77,11 +85,15 @@ var scenario_2: Scenario = Scenario {
     veering: 0,
     pressure_mean: 10380,
     pressure_dip: 0,
-    cirrus_mean: 80
+    cirrus_mean: 80,
+    frontal: 0,
+    event: 0,
+    event_start: 0,
+    event_length: 0
 };
 var scenario_3: Scenario = Scenario {
     name: "storm",
-    description: "severe storm: deep low, gales, heavy rain, wind veering from SSW to NW",
+    description: "severe storm: cirrus first, then a deep low, gales, heavy rain, wind veering SSW to NW",
     temperature_mean: 900,
     temperature_swing: 200,
     humidity_base: 8500,
@@ -103,7 +115,11 @@ var scenario_3: Scenario = Scenario {
     veering: 60,
     pressure_mean: 9920,
     pressure_dip: 240,
-    cirrus_mean: 200
+    cirrus_mean: 200,
+    frontal: 1000,
+    event: 0,
+    event_start: 0,
+    event_length: 0
 };
 var scenario_4: Scenario = Scenario {
     name: "thunderstorm",
@@ -129,13 +145,79 @@ var scenario_4: Scenario = Scenario {
     veering: 0,
     pressure_mean: 10080,
     pressure_dip: 30,
-    cirrus_mean: 300
+    cirrus_mean: 300,
+    frontal: 0,
+    event: 0,
+    event_start: 0,
+    event_length: 0
 };
-pub fn app_scenario_count() -> u32 { return 5; }
+var scenario_5: Scenario = Scenario {
+    name: "mcs",
+    description: "approaching MCS: long anvil cirrus, an extreme gust front, then trailing rain as the wind dies",
+    temperature_mean: 2200,
+    temperature_swing: 600,
+    humidity_base: 7000,
+    humidity_per_degree: 2,
+    cloud_mean: 250,
+    cloud_trend_noise: 10,
+    convective_cloud: 200,
+    convection: 1000,
+    storm_cloud: 950,
+    storm_convection: 300,
+    rain_threshold: 750,
+    rain_per_cloud: 1500,
+    wind_mean: 300,
+    wind_swing: 150,
+    gust_chance: 6,
+    gust_min: 100,
+    gust_max: 300,
+    prevailing: 2250,
+    veering: 0,
+    pressure_mean: 10060,
+    pressure_dip: 0,
+    cirrus_mean: 150,
+    frontal: 0,
+    event: 1,
+    event_start: 480,
+    event_length: 360
+};
+var scenario_6: Scenario = Scenario {
+    name: "supercell",
+    description: "supercell: an isolated anvil, extreme winds for the whole storm, hail, and a tornado at its end",
+    temperature_mean: 2600,
+    temperature_swing: 800,
+    humidity_base: 6500,
+    humidity_per_degree: 3,
+    cloud_mean: 150,
+    cloud_trend_noise: 10,
+    convective_cloud: 200,
+    convection: 1000,
+    storm_cloud: 950,
+    storm_convection: 300,
+    rain_threshold: 800,
+    rain_per_cloud: 1500,
+    wind_mean: 400,
+    wind_swing: 200,
+    gust_chance: 5,
+    gust_min: 100,
+    gust_max: 300,
+    prevailing: 1500,
+    veering: 0,
+    pressure_mean: 10050,
+    pressure_dip: 0,
+    cirrus_mean: 100,
+    frontal: 0,
+    event: 2,
+    event_start: 600,
+    event_length: 90
+};
+pub fn app_scenario_count() -> u32 { return 7; }
 pub fn app_scenario_at(index: u32) -> ptr<Scenario> {
     if index == 0 { return &scenario_0; }
     if index == 1 { return &scenario_1; }
     if index == 2 { return &scenario_2; }
     if index == 3 { return &scenario_3; }
-    return &scenario_4;
+    if index == 4 { return &scenario_4; }
+    if index == 5 { return &scenario_5; }
+    return &scenario_6;
 }

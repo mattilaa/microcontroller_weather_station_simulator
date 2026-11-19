@@ -39,6 +39,8 @@ pub struct Reading {
     var cloud_cover: i32;
     var pressure: i32;
     var clouds: Clouds;
+    // 1 if a tornado passed during the interval (or is passing now).
+    var tornado: i32;
 };
 pub struct Sensor {
     var _noise_sigma: i32;
@@ -64,6 +66,7 @@ pub struct Station {
     var _sum_humidity: i64;
     var _sum_wind_speed: i64;
     var _interval_gust: i32;
+    var _interval_tornado: i32;
     var _sum_cloud_cover: i64;
     var _sum_pressure: i64;
     var _sum_cirrus: i64;
@@ -213,6 +216,9 @@ pub fn station_sample(station: ptr<Station>, weight_seconds: u32) -> void {
         if(peak > (*station)._interval_gust)
         { (*station)._interval_gust = peak;
         }
+        if((*station)._model._conditions.tornado > 0)
+        { (*station)._interval_tornado = 1;
+        }
 
         (*station)._latest = Reading {
             day: day(&mut (*station)._model),
@@ -221,6 +227,7 @@ pub fn station_sample(station: ptr<Station>, weight_seconds: u32) -> void {
                 humidity: (measure(&mut (*station)._hygrometer, (*station)._model._conditions.humidity)),
                 wind_speed: (wind_speed),
                 wind_gust: ((*station)._interval_gust),
+                tornado: ((*station)._interval_tornado),
                 wind_direction: (direction),
                 rain: ((*station)._update_rain),
                 rain_today: ((*station)._rain_today),
@@ -318,6 +325,7 @@ pub fn station_mean_of_interval(station: ptr<Station>, result: ptr<Reading>) -> 
                 humidity: (station_mean(station, (*station)._sum_humidity)),
                 wind_speed: (station_mean(station, (*station)._sum_wind_speed)),
                 wind_gust: ((*station)._interval_gust),
+                tornado: ((*station)._interval_tornado),
                 wind_direction: (wrap(station_mean(station, (*station)._sum_direction), 360)),
                 rain: ((*station)._interval_rain),
                 rain_today: ((*station)._rain_today),
@@ -364,6 +372,7 @@ pub fn station_reset_interval(station: ptr<Station>) -> void {
         (*station)._sum_wind_speed = 0;
         (*station)._sum_direction = 0;
         (*station)._interval_gust = 0;
+        (*station)._interval_tornado = 0;
         (*station)._sum_cloud_cover = 0;
         (*station)._sum_cirrus = 0;
         (*station)._sum_altostratus = 0;
@@ -386,13 +395,13 @@ pub fn station_reset_interval(station: ptr<Station>) -> void {
 }
 // Guard the compact record and model storage layouts.
 fn verify_layout() -> i32 {
-    static_assert!(size_of(Model) == 232);
-    static_assert!(size_of(Scenario) == 104);
-    static_assert!(size_of(Conditions) == 108);
-    static_assert!(size_of(Station) == 744);
+    static_assert!(size_of(Model) == 240);
+    static_assert!(size_of(Scenario) == 120);
+    static_assert!(size_of(Conditions) == 112);
+    static_assert!(size_of(Station) == 752);
     static_assert!(size_of(Sensor) == 20);
     static_assert!(size_of(Clouds) == 76);
-    static_assert!(size_of(Reading) == 120);
+    static_assert!(size_of(Reading) == 124);
     return 0;
 }
 
@@ -421,6 +430,7 @@ pub struct Entry {
     var stratocumulus: u8;
     var nimbostratus: u8;
     var altocumulus: u8;
+    var tornado: u8;
     var pressure: u16;
 };
 pub fn pack_entry(entry: ptr<Entry>, reading: ptr<Reading>, sequence: u32) -> void {
@@ -450,6 +460,7 @@ pub fn pack_entry(entry: ptr<Entry>, reading: ptr<Reading>, sequence: u32) -> vo
         (*entry).stratocumulus = u8(clamp((*reading).clouds.stratocumulus, 0, 100));
         (*entry).nimbostratus = u8(clamp((*reading).clouds.nimbostratus, 0, 100));
         (*entry).altocumulus = u8(clamp((*reading).clouds.altocumulus, 0, 100));
+        (*entry).tornado = u8(clamp((*reading).tornado, 0, 1));
         (*entry).pressure = u16(clamp((*reading).pressure, 0, 65535));
     }
 }
@@ -480,6 +491,7 @@ pub fn unpack_entry(entry: ptr<Entry>, reading: ptr<Reading>) -> void {
         (*reading).clouds.stratocumulus = i32((*entry).stratocumulus);
         (*reading).clouds.nimbostratus = i32((*entry).nimbostratus);
         (*reading).clouds.altocumulus = i32((*entry).altocumulus);
+        (*reading).tornado = i32((*entry).tornado);
         (*reading).pressure = i32((*entry).pressure);
         derive_cloud_levels(&mut (*reading).clouds);
     }

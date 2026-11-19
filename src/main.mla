@@ -52,7 +52,7 @@ fn initialize_station() -> void {
         };
         station._thermometer = Sensor { _noise_sigma: 5, _resolution: 1, _min: -4000, _max: 6000, _rng: 2119630849u32 };
         station._hygrometer = Sensor { _noise_sigma: 30, _resolution: 10, _min: 0, _max: 10000, _rng: 2119630850u32 };
-        station._anemometer = Sensor { _noise_sigma: 5, _resolution: 10, _min: 0, _max: 6000, _rng: 2119630851u32 };
+        station._anemometer = Sensor { _noise_sigma: 5, _resolution: 10, _min: 0, _max: 9000, _rng: 2119630851u32 };
         station._wind_vane = Sensor { _noise_sigma: 2, _resolution: 1, _min: -720, _max: 1080, _rng: 2119630852u32 };
         station._sky_imager = Sensor { _noise_sigma: 2, _resolution: 1, _min: 0, _max: 100, _rng: 2119630853u32 };
         station._cloud_sensor = Sensor { _noise_sigma: 1, _resolution: 1, _min: 0, _max: 100, _rng: 2119630854u32 };

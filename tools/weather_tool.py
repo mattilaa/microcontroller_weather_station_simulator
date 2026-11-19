@@ -47,9 +47,10 @@ COLUMNS = ["seq", "day", "time", "temperature", "humidity", "wind_speed", "wind_
            "lcl", "cirrus", "altostratus", "cumulus", "cumulus_top", "cumulonimbus",
            "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
            "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top", "stratocumulus_top",
-           "nimbostratus_top", "altocumulus_base", "altocumulus_top", "pressure", "wind_gust"]
+           "nimbostratus_top", "altocumulus_base", "altocumulus_top", "pressure", "wind_gust",
+           "tornado"]
 CLOUD_LAYER_COLUMNS = COLUMNS[COLUMNS.index("lcl"):COLUMNS.index("pressure")]
-SCENARIOS = ["default", "summer_heat", "winter_high", "storm", "thunderstorm"]
+SCENARIOS = ["default", "summer_heat", "winter_high", "storm", "thunderstorm", "mcs", "supercell"]
 SERVICE_PORT = 5000
 
 # ---- import --------------------------------------------------------------------
@@ -161,6 +162,7 @@ def load(path):
                     **{key: float(row[key]) if row.get(key) else None for key in CLOUD_LAYER_COLUMNS},
                     "pressure": float(row["pressure"]) if row.get("pressure") else None,
                     "wind_gust": float(row["wind_gust"]) if row.get("wind_gust") else None,
+                    "tornado": row.get("tornado") == "1",
                 }
             )
     readings.sort(key=lambda r: r["when"])
@@ -213,25 +215,30 @@ TEMPERATURE_COLOR = "#9b1c1c"
 DEW_POINT_COLOR = "#4f9a2e"
 RAIN_COLOR = "#3b6fd4"
 # Cloud panel: each type at its level (hPa), as in the firmware's weather_model.
+# All clouds share one colour scale: the denser the cloud, the darker it is,
+# from thin wispy cirrus to the towering, opaque cumulonimbus.
 CLOUD_TYPES = [
-    # Drawn in this order (back to front). key, label, colour, base, top: a
-    # column name (per record) or a fixed hPa (fallback for older CSVs);
-    # then how soft the lower and upper edges are, as fractions of the
-    # layer's depth.
-    ("cirrus", "Cirrus", "#7fa8dc", ("cirrus_base", 350), ("cirrus_top", 200), 0.45, 0.45),
-    ("altostratus", "Altostratus", "#8a95a8", ("altostratus_base", 700), ("altostratus_top", 450), 0.2, 0.3),
-    ("altocumulus", "Altocumulus", "#a9b8cb", ("altocumulus_base", 600), ("altocumulus_top", 540), 0.3, 0.4),
-    ("nimbostratus", "Nimbostratus", "#536072", ("lcl", 950), ("nimbostratus_top", 550), 0.15, 0.25),
-    ("stratocumulus", "Stratocumulus", "#97a8bc", ("lcl", 950), ("stratocumulus_top", 850), 0.06, 0.4),
-    ("stratus", "Stratus", "#8e97a2", ("lcl", 950), ("stratus_top", 920), 0.1, 0.2),
-    ("cumulus", "Cumulus", "#a3b5cc", ("lcl", 900), ("cumulus_top", 700), 0.04, 0.4),
-    ("cumulonimbus", "Cumulonimbus", "#3f4f66", ("lcl", 900), (None, 200), 0.04, 0.15),
+    # Drawn in this order. key, label, density (optical thickness at full
+    # cover), base, top: a column name (per record) or a fixed hPa
+    # (fallback for older CSVs); then how soft the lower and upper edges
+    # are, as fractions of the layer's depth.
+    ("cirrus", "Cirrus", 0.8, ("cirrus_base", 350), ("cirrus_top", 200), 0.45, 0.45),
+    ("altocumulus", "Altocumulus", 0.9, ("altocumulus_base", 600), ("altocumulus_top", 540), 0.3, 0.4),
+    ("altostratus", "Altostratus", 1.2, ("altostratus_base", 700), ("altostratus_top", 450), 0.2, 0.3),
+    ("cumulus", "Cumulus", 1.4, ("lcl", 900), ("cumulus_top", 700), 0.04, 0.4),
+    ("stratocumulus", "Stratocumulus", 1.5, ("lcl", 950), ("stratocumulus_top", 850), 0.06, 0.4),
+    ("stratus", "Stratus", 1.7, ("lcl", 950), ("stratus_top", 920), 0.1, 0.2),
+    ("nimbostratus", "Nimbostratus", 2.6, ("lcl", 950), ("nimbostratus_top", 550), 0.15, 0.25),
+    ("cumulonimbus", "Cumulonimbus", 4.0, ("lcl", 900), (None, 200), 0.04, 0.15),
 ]
+CLOUD_LIGHT = "#c3ccd8"  # the thinnest visible cloud
+CLOUD_DARK = "#1f2a3a"   # the densest
 LCL_COLOR = "#c0601a"
 PRESSURE_TICKS = [1000, 850, 700, 500, 300, 200]
 # Standard-atmosphere heights of those levels, for the km scale.
 PRESSURE_KM = {1000: "0.1", 850: "1.5", 700: "3.0", 500: "5.6", 300: "9.2", 200: "11.8"}
 WIND_COLOR = "#2f4f6f"
+TORNADO_COLOR = "#c0392b"
 PRESSURE_COLOR = "#7a3e9d"
 GRID_COLOR = "#dddddd"
 
@@ -253,6 +260,22 @@ def smoothstep(x):
     return x * x * (3 - 2 * x)
 
 
+def cloud_colours(thickness):
+    """RGBA for cloud optical thicknesses: transparent where there's none,
+    then from light grey to dark slate as the cloud gets thicker."""
+    import matplotlib.colors
+    import numpy as np
+
+    darkness = 1 - np.exp(-thickness / 1.6)  # 0 clear .. 1 opaque
+    light = np.array(matplotlib.colors.to_rgb(CLOUD_LIGHT))
+    dark = np.array(matplotlib.colors.to_rgb(CLOUD_DARK))
+    shade = np.clip((darkness - 0.1) / 0.85, 0, 1)[..., None]
+    rgba = np.empty(thickness.shape + (4,))
+    rgba[..., :3] = light + (dark - light) * shade
+    rgba[..., 3] = np.clip(darkness * 2.2, 0, 1)  # faint cloud fades out
+    return rgba
+
+
 def draw_cloud_panel(ax, readings):
     """Time-height cross-section of the cloud layers on a pressure axis.
 
@@ -261,7 +284,9 @@ def draw_cloud_panel(ax, readings):
     between records. Each layer spans its own base and top for that record
     and has edges shaped like the cloud: cumulus a flat base at the LCL and
     a soft billowing top, cirrus wispy and densest in the middle, altostratus
-    a sheet. More cloud is more opaque. The LCL is drawn as a line."""
+    a sheet. All types share one colour scale: their optical thickness adds
+    up, and the thicker the cloud, the darker it is. The LCL is drawn as a
+    line."""
     import matplotlib.colors
     import matplotlib.dates as mdates
     import numpy as np
@@ -275,12 +300,10 @@ def draw_cloud_panel(ax, readings):
     levels = np.log(np.geomspace(p_top, p_bottom, rows))  # row 0 = top of the sky
     width = RECORD_MINUTES / 1440  # one column per record, in days
 
-    image = np.zeros((rows, len(layered), 4))
-    for key, _, color, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
-        rgb = np.array(matplotlib.colors.to_rgb(color))
-        floor = 0.45 if key in ("cumulonimbus", "nimbostratus") else 0.2
+    thickness = np.zeros((rows, len(layered)))
+    for key, _, density, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
         for column, r in enumerate(layered):
-            amount = (r.get(key) or 0.0) / 100.0
+            amount = min((r.get(key) or 0.0) / 100.0, 1.0)
             if amount <= 0.005:
                 continue
             base = np.log(r.get(base_key) or base_fixed) if base_key else np.log(base_fixed)
@@ -295,14 +318,10 @@ def draw_cloud_panel(ax, readings):
                 # Wispy: densest in the middle of the layer.
                 middle = (base + top) / 2
                 profile *= np.exp(-(((levels - middle) / (depth / 2.2)) ** 2))
-            alpha = profile * (floor + min(amount, 1.0) * (0.95 - floor))
-            # Composite this layer over what's there ("over" operator).
-            old = image[:, column]
-            out_alpha = alpha + old[:, 3] * (1 - alpha)
-            safe = np.where(out_alpha > 0, out_alpha, 1)
-            old[:, :3] = (rgb * alpha[:, None] + old[:, :3] * (old[:, 3] * (1 - alpha))[:, None]) / safe[:, None]
-            old[:, 3] = out_alpha
+            # Even a little cloud shows; more of it is thicker.
+            thickness[:, column] += profile * density * (0.25 + 0.75 * amount)
 
+    image = cloud_colours(thickness)
     starts = [mdates.date2num(r["when"]) - width for r in layered]
     ax.imshow(image, extent=(starts[0], starts[-1] + width, np.log(p_bottom), np.log(p_top)),
               aspect="auto", interpolation="nearest", origin="upper", zorder=2)
@@ -312,6 +331,15 @@ def draw_cloud_panel(ax, readings):
     ax.yaxis.set_minor_locator(NullLocator())
     ax.set_yticklabels([str(p) for p in PRESSURE_TICKS])
     ax.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
+
+    # A tornado: a funnel from the lowered wall cloud down to the ground.
+    for r in layered:
+        if r.get("tornado"):
+            middle = mdates.date2num(r["when"]) - width / 2
+            top = np.log(min(r["lcl"], 870))
+            ax.fill([middle - width * 0.9, middle + width * 0.9, middle + width * 0.12, middle - width * 0.12],
+                    [top, top, np.log(p_bottom - 15), np.log(p_bottom - 15)],
+                    color=TORNADO_COLOR, lw=0, zorder=3)
 
     lcl_times = [r["when"] - datetime.timedelta(minutes=RECORD_MINUTES / 2) for r in layered]
     ax.plot(lcl_times, np.log([r["lcl"] for r in layered]), color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), zorder=4)
@@ -325,7 +353,9 @@ def draw_cloud_panel(ax, readings):
     km.spines["right"].set_visible(False)
     ax.text(1, 1.02, "km", transform=ax.transAxes, ha="left", va="bottom", fontsize=12, color="#444444")
 
-    handles = [Patch(color=color, alpha=0.8, label=label) for _, label, color, *_ in CLOUD_TYPES]
+    # Each type's swatch is its shade at 70 % cover.
+    swatches = cloud_colours(np.array([[density * (0.25 + 0.75 * 0.7) for _, _, density, *_ in CLOUD_TYPES]]))[0]
+    handles = [Patch(facecolor=swatch, label=label) for swatch, (_, label, *_) in zip(swatches, CLOUD_TYPES)]
     handles.append(Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)"))
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=len(handles),
               frameon=False, fontsize=9, handlelength=1.2, handletextpad=0.4, columnspacing=0.9)
@@ -444,6 +474,15 @@ def draw(fig, readings, hours=24, title=None):
         ax_w.legend(loc="lower left", bbox_to_anchor=(0.03, 0.98), ncol=2, frameon=False, fontsize=9,
                     handlelength=2.2, columnspacing=1.2)
     ax_w.text(0, 1.02, "m/s", transform=ax_w.transAxes, ha="right", va="bottom", fontsize=12, color="#444444")
+
+    # Tornadoes: a red band over each record with one, labelled once.
+    tornadoes = [r["when"] for r in readings if r.get("tornado")]
+    for when in tornadoes:
+        ax_w.axvspan(when - datetime.timedelta(minutes=RECORD_MINUTES), when, color=TORNADO_COLOR, alpha=0.22,
+                     lw=0, zorder=1)
+    if tornadoes:
+        ax_w.text(tornadoes[0] - datetime.timedelta(minutes=RECORD_MINUTES * 1.5), top_speed, "Tornado",
+                  ha="right", va="center", fontsize=10, fontweight="bold", color=TORNADO_COLOR, zorder=6)
 
     # Surface pressure on the right-hand axis (high in an anticyclone, deep
     # and falling as a storm's low passes).

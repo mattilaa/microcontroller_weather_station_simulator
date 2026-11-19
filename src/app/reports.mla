@@ -54,6 +54,8 @@ pub fn write_json(out: ptr<u8>, reading: ptr<Reading>) -> void {
         write_int(out, i64((*reading).cloud_cover));
         write_text(out, ",\"pressure\":");
         write_fixed(out, i64((*reading).pressure), 1);
+        write_text(out, ",\"tornado\":");
+        write_int(out, i64((*reading).tornado));
         write_text(out, ",\"lcl\":");
         write_int(out, i64((*reading).clouds.lcl));
         write_text(out, ",\"cirrus\":");
@@ -156,6 +158,8 @@ pub fn write_csv_row(out: ptr<u8>, sequence: u32, reading: ptr<Reading>) -> void
         write_fixed(out, i64((*reading).pressure), 1);
         write_text(out, ",");
         write_fixed(out, i64((*reading).wind_gust), 2);
+        write_text(out, ",");
+        write_int(out, i64((*reading).tornado));
         write_text(out, "\n");
     }
 }
@@ -195,6 +199,9 @@ pub fn write_weather_report(out: ptr<u8>, station: ptr<Station>, reading: ptr<Re
         write_fixed(out, i64((*mean).wind_gust), 2);
         write_text(out, " m/s");
         write_text(out, ")\n");
+        if (*reading).tornado > 0 {
+            write_text(out, "TORNADO:        a tornado is passing the station\n");
+        }
         write_text(out, "wind direction: ");
         write_direction(out, (*reading).wind_direction);
         write_text(out, " (10-min mean ");

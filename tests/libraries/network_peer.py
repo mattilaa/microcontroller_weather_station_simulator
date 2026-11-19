@@ -219,7 +219,7 @@ class NetworkPeer:
                    "cirrus_base", "cirrus_top", "altostratus_base", "altostratus_top",
                    "stratus", "stratocumulus", "nimbostratus", "altocumulus", "stratus_top",
                    "stratocumulus_top", "nimbostratus_top", "altocumulus_base", "altocumulus_top",
-                   "pressure", "wind_gust"]
+                   "pressure", "wind_gust", "tornado"]
         readings, next_sequence = [], int(start)
         while True:
             header, *rows = self.send_udp_command(f"log {next_sequence}").split("\n")

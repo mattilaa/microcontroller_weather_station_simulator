@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Bare-metal AArch64 firmware (no OS), run on QEMU `virt` (Cortex-A53), built with CMake. MLang firmware is rooted at `src/main.mla`, with application modules in `src/app`, hardware drivers in `src/hal`, networking in `src/net`, runtime support in `src/runtime`, and utilities in `src/util`. Assembly provides startup and ABI/linker adapters. `tools/weather_tool.py` imports the log and plots it.
+Bare-metal AArch64 firmware (no OS), run on QEMU `virt` (Cortex-A53), built with CMake. MLang firmware is rooted at `src/main.mla`, with application modules in `src/app`, hardware drivers in `src/hal`, networking in `src/net`, runtime support in `src/runtime`, and utilities in `src/util`. MLang module-level inline assembly provides startup and ABI/linker adapters. `tools/weather_tool.py` imports the log and plots it.
 
 `./build.sh -G Ninja` fetches/builds MLang v0.4.5 in ignored `subprojects/mlang` before building firmware. Direct CMake configuration also bootstraps a missing compiler. `tools/compile_mlang.py` retargets emitted LLVM IR to bare-metal AArch64, supplies a non-throwing runtime, and applies strict alignment, general-register-only code generation and `-Oz`. Do not add heap-backed MLang array literals or link the hosted standard library. Use structure-valued globals and inline `fixedarray<T, N>` storage for allocation-free buffers and presets. Imports use paths relative to `src`, such as `mod app::weather_model; use app::weather_model::*;`.
 
@@ -90,7 +90,7 @@ GCC details:
   - `net::stack`'s two frame copies (in .data, because it has non-zero members)
 - **Before growing any of these,** check the linker's RAM report.
 
-**Boot path:** QEMU loads the ELF segments at their load addresses and enters `_start` in `src/startup.S` at EL1 on every core. Core 0 sets up the stack, enables FP, copies .data from FLASH to RAM, zeroes `.bss`, fills the unused stack with the "STACKPAT" pattern (`runtime::stack_peak()` finds the deepest overwritten word), calls `__run_global_constructors` (`src/runtime/cxx_runtime.cpp`, walks `.init_array`), then `main`. `main` is `extern "C"`, because under `-ffreestanding` it would otherwise be name-mangled.
+**Boot path:** QEMU loads the ELF segments at their load addresses and enters `_start` in `src/startup.mla` at EL1 on every core. Module-level `asm aarch64` parks secondary cores, sets up the stack, enables FP, copies `.data` from FLASH to RAM, zeroes `.bss`, fills the unused stack with the "STACKPAT" pattern, and calls `main`. Globals use static initialization; there is no constructor loop. `src/runtime/abi.mla` defines C runtime symbols and linker-address helpers in module-level assembly. All firmware sources are `.mla`; the linker script still defines the memory layout.
 
 **Static object graph:** `src/main.cpp` declares every object (`serial_console`, `station` + `reading_log`, `ethernet` + `ethernet_memory`, `weather_udp`, `ip_stack`, the tasks, `task_table`, `task_scheduler`) as a `constinit` global in an anonymous namespace. They're wired together through constructor references, so `.init_array` stays empty. New globals should stay `constinit`, which means they need `constexpr` constructors. `command_shell` (a `console_task`) needs a reference to `task_scheduler`, which is defined later, hence the `extern scheduler task_scheduler;` forward declaration.
 

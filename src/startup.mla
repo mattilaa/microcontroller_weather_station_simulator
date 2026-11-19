@@ -3,7 +3,7 @@
  * QEMU starts all CPUs at _start in EL1 (no firmware, no OS).
  */
 
-    .section .text.boot, "ax"
+asm aarch64(".section .text.boot, \"ax\"
     .global _start
 _start:
     /* Only core 0 runs; park any secondary cores. */
@@ -38,7 +38,7 @@ _start:
     str     xzr, [x0], #8
     b       1b
 2:
-    /* Fill the unused stack with a pattern ("STACKPAT"), up to just below
+    /* Fill the unused stack with a pattern (\"STACKPAT\"), up to just below
        the current stack pointer, so runtime::stack_peak() can find the
        deepest point the stack ever reached. */
     ldr     x0, =__stack_bottom
@@ -57,3 +57,4 @@ _start:
 park:
     wfe
     b       park
+");

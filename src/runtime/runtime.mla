@@ -1,4 +1,4 @@
-// Freestanding support. abi.S exposes the C symbols used by LLVM-generated code.
+// Freestanding support. abi.mla exposes the C symbols used by LLVM-generated code.
 mod hal::hardware;
 use hal::hardware::*;
 extern fn firmware_stack_bottom() -> ptr<u64>;

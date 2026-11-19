@@ -5,7 +5,7 @@ if(NOT CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/cmake/toolchain-clang-aarch64.cmake)
 endif()
 
-project(baremetal_aarch64 CXX ASM)
+project(baremetal_aarch64 CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(NOT CMAKE_BUILD_TYPE)
@@ -21,8 +21,6 @@ set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/linker/qemu_virt.ld)
 
 add_executable(firmware
     ${MLANG_OBJECT}
-    src/startup.S
-    src/runtime/abi.S
 )
 set_target_properties(firmware PROPERTIES SUFFIX ".elf" LINKER_LANGUAGE CXX)
 add_dependencies(firmware mlang_commands)

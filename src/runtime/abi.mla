@@ -1,7 +1,8 @@
 /* The only ABI glue: LLVM's C runtime symbols and linker-defined addresses.
  * All behavior, including byte-copy loops and panic handling, lives in MLang.
  */
-    .section .text.runtime_abi, "ax"
+
+asm aarch64(".section .text.runtime_abi, \"ax\"
     .global abort
     .type abort, %function
 abort:
@@ -40,3 +41,4 @@ firmware_stack_top:
     adrp x0, __stack_top
     add x0, x0, :lo12:__stack_top
     ret
+");

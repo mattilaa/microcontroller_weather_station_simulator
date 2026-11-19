@@ -7,8 +7,8 @@ main loop on QEMU's `virt` machine (Cortex-A53). MLang implements the weather mo
 sensors, record aggregation and packing, application protocol, console commands,
 reports, integer formatting, boot settings, and scheduling policy. MLang also
 implements the hardware drivers, networking, static storage, and freestanding
-memory routines. Assembly provides CPU startup and a small set of ABI/linker
-symbol adapters. CMake builds them into one firmware image.
+memory routines. MLang modules with inline assembly provide CPU startup and a small set of
+ABI/linker symbol adapters. CMake builds them into one firmware image.
 
 Its simulated sensors measure temperature, humidity, wind speed and direction, rain,
 cloud cover, and cloud layers. Readings are printed on the UART, logged, and served
@@ -323,11 +323,11 @@ individual suites and tests are in the [command reference](#command-reference).
 | Stage   | Jobs | What it does |
 |---------|------|--------------|
 | `lint`  | 1    | Python syntax checks and a Robot Framework dry run |
-| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, assembled/linked with `-DFIRMWARE_WERROR=ON`; runs portable MLang unit tests once and uploads the firmware as an artifact |
+| `build` | 8    | host {Linux x64, Linux arm64} × {GCC, clang} × {Debug, Release}, built with `-DFIRMWARE_WERROR=ON`; runs portable MLang unit tests once and uploads the firmware as an artifact |
 | `test`  | 8    | the same matrix; downloads the matching firmware and runs the Robot suites under QEMU, with no compiler installed |
 
-The GNU/Clang drivers assemble the startup/glue and link MLang objects; they do
-not compile C++ firmware code. GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
+MLang emits the complete firmware object, including startup and ABI assembly.
+The GNU/Clang drivers link that object without compiling C++ firmware code. GCC on the x64 host is the `g++-aarch64-linux-gnu` cross compiler. On the arm64 host it's
 Ubuntu's native `g++`. Both provide `aarch64-linux-gnu-*` binaries, so both use the same
 `CROSS_PREFIX`. Robot logs are uploaded as artifacts too.
 
@@ -349,8 +349,8 @@ tests/libraries/                    Python keyword libraries: QEMU/UART driver, 
 cmake/toolchain-clang-aarch64.cmake clang++ + lld toolchain (default)
 cmake/toolchain-gcc-aarch64.cmake   aarch64-none-elf-g++ toolchain
 linker/qemu_virt.ld                 memory map: FLASH at 0x40000000, 32 KiB RAM at 0x40100000
-src/startup.S                      _start: set up stack/RAM, park secondary cores, call main
-src/runtime/abi.S                  C runtime symbol aliases and linker-address accessors
+src/startup.mla                      _start: set up stack/RAM, park secondary cores, call main
+src/runtime/abi.mla                  C runtime symbol aliases and linker-address accessors
 src/main.mla                       station initialization and cooperative main loop
 src/hal/hardware.mla               UART, generic timer, fw_cfg, MMIO and semihosting
 src/hal/virtio_net.mla             aligned DMA queues and polled virtio-net driver

@@ -1,4 +1,8 @@
-// Complete firmware application. startup.S establishes RAM and the stack first.
+// Complete firmware application. startup.mla establishes RAM and the stack first.
+mod startup;
+use startup::*;
+mod runtime::abi;
+use runtime::abi::*;
 mod hal::hardware;
 use hal::hardware::*;
 mod util::text_stream;

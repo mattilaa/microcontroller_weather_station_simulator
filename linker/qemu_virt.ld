@@ -6,7 +6,7 @@
  *
  * QEMU virt has no flash for a bare -kernel image, so FLASH is the start of
  * QEMU's RAM, used as read-only image memory. QEMU loads every segment at its
- * load address (LMA), so .data's initial values land in FLASH and startup.S
+ * load address (LMA), so .data's initial values land in FLASH and startup.mla
  * copies them into RAM, as on a real chip.
  */
 

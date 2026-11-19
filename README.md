@@ -10,38 +10,56 @@ implements the hardware drivers, networking, static storage, and freestanding
 memory routines. Assembly provides CPU startup and a small set of ABI/linker
 symbol adapters. CMake builds them into one firmware image.
 
-It simulates temperature, humidity, wind speed, wind direction, rain, cloud cover and cloud layer sensors read a simulated weather model. Readings are printed on the UART, logged, and served over **Ethernet**, through a virtio-net driver and a minimal
-IPv4 stack (ARP, ping, UDP). A Python tool imports the log and plots it in the style of
-the Finnish Meteorological Institute's forecast chart:
+Its simulated sensors measure temperature, humidity, wind speed and direction, rain,
+cloud cover, and cloud layers. Readings are printed on the UART, logged, and served
+over **Ethernet** through a virtio-net driver and a minimal IPv4 stack (ARP, ping, UDP).
+A Python tool imports the log and plots it in the style of the Finnish Meteorological
+Institute's forecast chart:
 
 ![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
-**Just the commands** for setup, running and testing: [howto.txt](howto.txt).
+## Installation
+
+Run these commands from the repository root. Use Python 3.11 or newer.
+
+### Linux (Debian/Ubuntu)
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential git cmake ninja-build \
+  clang llvm-dev lld flex bison libssl-dev qemu-system-arm \
+  python3 python3-venv netcat-openbsd
+```
+
+### macOS (Homebrew)
+
+```sh
+brew install cmake ninja qemu llvm lld flex bison openssl
+```
+
+### Build and run (both platforms)
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r tests/requirements.txt
+./build.sh -G Ninja
+cmake --build build --target run
+```
+
+Press `q` to quit QEMU, or Ctrl-A X. Activate `.venv` in each new terminal.
+The complete command sheet from [howto.txt](howto.txt) is included
+[below](#command-reference).
 
 ## MLang toolchain
 
-`./build.sh` fetches and fast-forwards [MLang main](https://github.com/mattilaa/mlang/tree/main)
-into the ignored `subprojects/mlang` directory, builds its host compiler, then
-configures and builds the firmware. Like `../mlacker`, the dependency is a local
-checkout fetched before building, rather than a committed submodule. Existing
-modified checkouts and development branches are preserved. The old clean
-v0.4.4 checkout is migrated to `main` automatically. Builds disable automatic
-compiler version increments.
+`./build.sh` fetches and builds [MLang main](https://github.com/mattilaa/mlang/tree/main)
+in the ignored `subprojects/mlang` directory before building the firmware.
+Existing modified checkouts and development branches are preserved.
+Use `./bootstrap.sh` to build only the compiler, or
+`BUILD_DIR=build-release ./build.sh -G Ninja -DCMAKE_BUILD_TYPE=Release`
+for a Release build.
 
-```sh
-# macOS host dependencies (in addition to Python test dependencies below)
-brew install cmake ninja qemu llvm lld flex bison openssl
-./build.sh -G Ninja
-
-# Fetch/build only the host compiler
-./bootstrap.sh
-
-# Select another firmware build directory or configuration
-BUILD_DIR=build-release ./build.sh -G Ninja -DCMAKE_BUILD_TYPE=Release
-```
-
-On Debian/Ubuntu the host compiler needs `build-essential cmake ninja-build
-clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
 Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
 Subsequent firmware builds recompile changed `.mla` modules automatically.
 Builds also generate `mlang_commands.json` in the build directory and copy it
@@ -215,7 +233,7 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   each arrow. Surface pressure runs on the right-hand hPa axis.
 - **Time axis:** a dashed line at each midnight.
 
-With the [virtual environment](#python-virtual-environment) set up and active:
+With the [virtual environment](#build-and-run-both-platforms) set up and active:
 
 ```sh
 # Record live: starts its own QEMU, imports records as they are measured and keeps
@@ -244,57 +262,24 @@ without any cloud columns there's no cloud panel.
 repeatedly while the firmware keeps measuring. `record` with its own QEMU starts a fresh
 CSV, because a fresh firmware starts a fresh log.
 
-## Requirements
+## Build options
 
-- CMake ≥ 3.20 and Ninja (or Make)
-- `qemu-system-aarch64`
-- A cross compiler, either:
-  - LLVM clang++ + lld (default): `brew install llvm lld`
-  - or the Arm GNU toolchain `aarch64-none-elf-g++`
-- Python 3.11 or newer (CI uses 3.12), for the tests and the plotting tool
-
-## Python virtual environment
-
-Set up a virtual environment before installing any Python packages. That keeps the
-project's packages (Robot Framework, pyelftools, matplotlib) out of your system Python,
-and pins them to the versions in the `requirements.txt` files. Do this once, in the
-repository root:
+The default toolchain uses LLVM/Clang and LLD to target AArch64. To use
+Debian/Ubuntu's GNU cross compiler instead:
 
 ```sh
-python3 -m venv .venv                   # create it (.venv/ is gitignored)
-source .venv/bin/activate               # activate it (fish: .venv/bin/activate.fish)
-python -m pip install --upgrade pip
-pip install -r tests/requirements.txt   # test dependencies + the plotting tool's
+sudo apt-get install -y g++-aarch64-linux-gnu
+cmake -B build-gcc -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake \
+  -DCROSS_PREFIX=aarch64-linux-gnu-
+cmake --build build-gcc
 ```
 
-`tests/requirements.txt` includes `tools/requirements.txt`. If you only want the plotting
-tool, `pip install -r tools/requirements.txt` is enough.
-
-- **New terminals:** activate the environment again in every new terminal with
-  `source .venv/bin/activate`. Your prompt shows `(.venv)` while it's active, and
-  `deactivate` leaves it.
-- **CMake:** configure a new build directory with the environment active. CMake records
-  which Python `ctest` uses, and Robot Framework is only installed in the virtual
-  environment. CMake keeps the Python it found first, so activating the environment and
-  re-running `cmake` on an existing build directory doesn't switch it. Either delete the
-  build directory and configure again, or point CMake at the environment explicitly:
-  `cmake -B build -DPython3_EXECUTABLE=$PWD/.venv/bin/python`.
-- **Starting over:** delete `.venv/` and repeat the steps above.
-
-## Build & run
+CMake caches the Python interpreter selected during configuration. To switch an
+existing build to the virtual environment, run:
 
 ```sh
-cmake -B build -G Ninja
-cmake --build build                 # -> build/firmware.elf, build/firmware.bin, build/firmware.map
-cmake --build build --target run    # run in QEMU (press 'q' to quit, or Ctrl-A X)
-```
-
-To use GCC instead of clang:
-
-```sh
-cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake
-# with Debian/Ubuntu's g++-aarch64-linux-gnu instead:
-cmake -B build-gcc -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-gcc-aarch64.cmake -DCROSS_PREFIX=aarch64-linux-gnu-
+cmake -B build -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
 ```
 
 ## Tests
@@ -325,20 +310,9 @@ and log wraparound with exact sequence and packed-value checks. `ctest` runs the
 alongside Robot; the helper builds the host runtime in the MLang checkout. They
 can also be run with `python tools/test_mlang.py`.
 
-With the [virtual environment](#python-virtual-environment) set up and active:
-
-```sh
-cmake -B build -G Ninja                       # configure with the venv active
-cmake --build build
-ctest --test-dir build --output-on-failure    # report: build/robot/log.html
-```
-
-Run one suite or test directly:
-
-```sh
-robot --pythonpath tests/libraries --outputdir build/robot tests/console.robot
-robot --pythonpath tests/libraries --outputdir build/robot --test "Quit*" tests
-```
+Run `ctest --test-dir build --output-on-failure` with the virtual environment
+active. Robot reports are written to `build/robot/log.html`; commands for
+individual suites and tests are in the [command reference](#command-reference).
 
 ## Continuous integration
 
@@ -396,4 +370,57 @@ src/util/random.mla                deterministic PRNG and sensor noise
 src/app/boot.mla                   boot speed/scenario configuration
 tests/firmware_unit_tests.mla      portable MLang regression tests
 tools/test_mlang.py                host-native test runner
+```
+
+## Command reference
+
+From [howto.txt](howto.txt); choose the commands for the task you want to run.
+
+```text
+HOST PACKAGES (choose your platform)
+  # Debian/Ubuntu:
+  sudo apt-get update
+  sudo apt-get install -y build-essential git cmake ninja-build clang llvm-dev lld flex bison libssl-dev qemu-system-arm python3 python3-venv netcat-openbsd
+  # macOS:
+  brew install cmake ninja qemu llvm lld flex bison openssl
+
+SETUP (once, from the repository root)
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install -r tests/requirements.txt
+  ./build.sh -G Ninja              # fetch/build MLang main, then firmware
+
+RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
+  source .venv/bin/activate
+  cmake --build build --target run
+  cmake -B build -DSIM_SPEED=600 && cmake --build build --target run   # 10 min/s
+  echo weather | nc -u -w1 127.0.0.1 5555           # in another terminal
+
+WEATHER SCENARIOS (default, summer_heat, winter_high, storm, thunderstorm)
+  python tools/weather_tool.py demo --scenario summer_heat     # very hot summer day
+  python tools/weather_tool.py demo --scenario winter_high     # cold winter high pressure
+  python tools/weather_tool.py demo --scenario storm           # severe storm, gales, deep low
+  python tools/weather_tool.py demo --scenario thunderstorm    # afternoon thunderstorms
+  python tools/weather_tool.py record --scenario storm --speed 3600 --hours 24   # live
+  cmake -B build -DSIM_SCENARIO=storm && cmake --build build --target run        # in QEMU
+  # while running: console key 'c' cycles, or: echo "scenario storm" | nc -u -w1 127.0.0.1 5555
+
+RECORD AND PLOT LIVE MEASUREMENTS (own QEMU; Ctrl-C stops; -> weather.png)
+  python tools/weather_tool.py record                           # real time
+  python tools/weather_tool.py record --speed 3600 --hours 48   # 48 h in < 1 min
+  python tools/weather_tool.py record --speed 72000 --hours 72   # ~5 s
+  python tools/weather_tool.py record --speed 600 --live        # live window
+
+PLOT FROM THE RUNNING FIRMWARE ('run' target above)
+  python tools/weather_tool.py record --port 5555               # keep collecting
+  python tools/weather_tool.py fetch --out weather.csv          # one import
+  python tools/weather_tool.py plot weather.csv --out weather.png
+
+TESTS
+  source .venv/bin/activate
+  cmake --build build
+  ctest --test-dir build --output-on-failure        # report: build/robot/log.html
+  python tools/test_mlang.py                      # portable memory/packet/log checks
+  robot --pythonpath tests/libraries tests/weather.robot          # one suite
+  robot --pythonpath tests/libraries --test "Quit*" tests         # one test
 ```

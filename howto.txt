@@ -9,7 +9,7 @@ SETUP (once, from the repository root)
   python3 -m venv .venv
   source .venv/bin/activate
   python -m pip install -r tests/requirements.txt
-  ./build.sh -G Ninja              # fetch/build MLang main, then firmware
+  ./build.sh -G Ninja              # fetch/build MLang v0.4.5, then firmware
 
 RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   source .venv/bin/activate

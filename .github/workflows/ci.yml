@@ -92,7 +92,7 @@ jobs:
             clang++ --version
           fi
 
-      - name: Bootstrap MLang main
+      - name: Bootstrap MLang v0.4.5
         run: ./bootstrap.sh
 
       - name: Configure

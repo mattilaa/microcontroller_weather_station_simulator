@@ -53,9 +53,11 @@ The complete command sheet from [howto.txt](howto.txt) is included
 
 ## MLang toolchain
 
-`./build.sh` fetches and builds [MLang main](https://github.com/mattilaa/mlang/tree/main)
+`./build.sh` fetches and builds [MLang v0.4.5](https://github.com/mattilaa/mlang/releases/tag/v0.4.5)
 in the ignored `subprojects/mlang` directory before building the firmware.
-Existing modified checkouts and development branches are preserved.
+The dependency is checked out at the release tag; builds do not follow `main`.
+Existing clean `main` or v0.4.4 checkouts are migrated to v0.4.5.
+Modified checkouts and other development branches are preserved.
 Use `./bootstrap.sh` to build only the compiler, or
 `BUILD_DIR=build-release ./build.sh -G Ninja -DCMAKE_BUILD_TYPE=Release`
 for a Release build.
@@ -81,7 +83,7 @@ The firmware links no hosted MLang runtime and has no heap. Use
 `fixedarray<T, N>` for allocation-free storage; existing list and `array<T, N>`
 literals still allocate.
 
-To test compiler development without changing the fetched main checkout:
+To test compiler development without changing the fetched release checkout:
 
 ```sh
 MLANG_ROOT=../mlang BUILD_DIR=build-mlang-dev ./build.sh -G Ninja
@@ -388,7 +390,7 @@ SETUP (once, from the repository root)
   python3 -m venv .venv
   source .venv/bin/activate
   python -m pip install -r tests/requirements.txt
-  ./build.sh -G Ninja              # fetch/build MLang main, then firmware
+  ./build.sh -G Ninja              # fetch/build MLang v0.4.5, then firmware
 
 RUN THE SIMULATION (real time; '+'/'-' change speed, 'q' quits)
   source .venv/bin/activate

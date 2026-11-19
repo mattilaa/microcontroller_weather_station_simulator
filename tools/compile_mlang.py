@@ -19,13 +19,14 @@ def main():
     parser.add_argument("--source", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    output = Path(args.output)
+    output = Path(args.output).resolve()
     ir = output.with_suffix(".ll")
     env = os.environ.copy()
     env["MLANG_MODULE_PATH"] = str(Path(__file__).resolve().parents[1] / "src")
     subprocess.run(
-        [args.compiler, "--target-arch", "aarch64", "-O2", "-emit-llvm",
-         args.source, "-o", str(ir)], env=env, check=True,
+        [str(Path(args.compiler).resolve()), "--target-arch", "aarch64", "-O2", "-emit-llvm",
+         str(Path(args.source).resolve()), "-o", str(ir)],
+        cwd=output.parent, env=env, check=True,
     )
     text = ir.read_text()
     text = re.sub(r'^target (?:datalayout|triple) = .*\n', "", text, flags=re.M)

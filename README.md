@@ -44,6 +44,10 @@ On Debian/Ubuntu the host compiler needs `build-essential cmake ninja-build
 clang llvm-dev lld flex bison libssl-dev`; QEMU is `qemu-system-arm`.
 Direct `cmake -B build -G Ninja` also bootstraps MLang when its compiler is missing.
 Subsequent firmware builds recompile changed `.mla` modules automatically.
+Builds also generate `mlang_commands.json` in the build directory and copy it
+to the project root for MLang editor tooling. This works with custom build
+directories too; `cmake --build build --target mlang_commands` refreshes the
+database without linking the firmware. The generated files are ignored by Git.
 
 The firmware implementation lives in `src/`, rooted at `main.mla`.
 No C++ firmware sources are compiled. Static globals and `fixedarray<T, N>` hold

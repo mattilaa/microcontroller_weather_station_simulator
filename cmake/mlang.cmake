@@ -59,6 +59,18 @@ add_custom_command(OUTPUT "${MLANG_OBJECT}"
         --output "${MLANG_OBJECT}"
     DEPENDS ${MLANG_SOURCES} "${MLANG_COMPILER}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_mlang.py"
     BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/weather_mlang.ll"
+               "${CMAKE_CURRENT_BINARY_DIR}/mlang_commands.json"
     COMMENT "Compiling MLang application for bare-metal AArch64"
     VERBATIM)
 set_source_files_properties("${MLANG_OBJECT}" PROPERTIES GENERATED TRUE EXTERNAL_OBJECT TRUE)
+
+# MLang emits its editor database beside the compiled object. Publish it at the
+# workspace root as well, including when using a non-default build directory.
+# Running the copy on each build also restores a deleted workspace database.
+add_custom_target(mlang_commands ALL
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_BINARY_DIR}/mlang_commands.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/mlang_commands.json"
+    DEPENDS "${MLANG_OBJECT}" "${CMAKE_CURRENT_BINARY_DIR}/mlang_commands.json"
+    COMMENT "Updating mlang_commands.json for editor tooling"
+    VERBATIM)

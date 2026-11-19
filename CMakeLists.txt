@@ -25,6 +25,7 @@ add_executable(firmware
     src/runtime/abi.S
 )
 set_target_properties(firmware PROPERTIES SUFFIX ".elf" LINKER_LANGUAGE CXX)
+add_dependencies(firmware mlang_commands)
 target_include_directories(firmware PRIVATE src)
 
 target_compile_options(firmware PRIVATE

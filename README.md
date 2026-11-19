@@ -19,11 +19,13 @@ the Finnish Meteorological Institute's forecast chart:
 
 ## MLang toolchain
 
-`./build.sh` fetches [MLang v0.4.4](https://github.com/mattilaa/mlang/releases/tag/v0.4.4)
+`./build.sh` fetches and fast-forwards [MLang main](https://github.com/mattilaa/mlang/tree/main)
 into the ignored `subprojects/mlang` directory, builds its host compiler, then
 configures and builds the firmware. Like `../mlacker`, the dependency is a local
 checkout fetched before building, rather than a committed submodule. Existing
-checkouts at a different tag are preserved and reported as an error.
+modified checkouts and development branches are preserved. The old clean
+v0.4.4 checkout is migrated to `main` automatically. Builds disable automatic
+compiler version increments.
 
 ```sh
 # macOS host dependencies (in addition to Python test dependencies below)
@@ -44,15 +46,26 @@ Subsequent firmware builds recompile changed `.mla` modules automatically.
 
 The implementation lives in `src/mlang/`, rooted at `application.mla`. C++ adapters
 keep the existing static object initialization and interfaces; shared structure
-sizes are checked in both languages. v0.4.4 does not support structure-valued
-globals, so the constant climate presets and object graph remain in C++.
+sizes are checked in both languages. MLang main supports structure-valued globals
+and inline `fixedarray<T, N>` storage; migration of the remaining C++ storage
+and drivers is in progress.
 `tools/compile_mlang.py` emits LLVM IR and compiles it for
 `aarch64-none-elf` with strict alignment and general registers only. It supplies
 a non-throwing runtime in the same IR module so LLVM removes MLang's default
 exception frames. The final LLVM pass optimizes for size (`-Oz`). Pointer-check
 failures enter the firmware panic handler.
-The firmware links no hosted MLang runtime and has no heap; array literals are
-avoided because v0.4.4 emits allocations for them.
+The firmware links no hosted MLang runtime and has no heap. Use
+`fixedarray<T, N>` for allocation-free storage; existing list and `array<T, N>`
+literals still allocate.
+
+To test compiler development without changing the fetched main checkout:
+
+```sh
+MLANG_ROOT=../mlang BUILD_DIR=build-mlang-dev ./build.sh -G Ninja
+```
+
+CMake also accepts `-DMLANG_ROOT=/absolute/path/to/mlang`. An explicit checkout
+is built in place and is not fetched or switched by bootstrap.
 
 ## Real time and the speed switch
 

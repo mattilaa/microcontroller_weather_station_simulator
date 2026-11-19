@@ -1,6 +1,6 @@
 """Compile MLang LLVM IR for the freestanding AArch64 firmware.
 
-v0.4.4 selects a hosted target triple and emits exception frames by default.
+MLang selects a hosted target triple and emits exception frames by default.
 Supply the non-throwing runtime in the same IR module so LLVM can eliminate
 those frames. No hosted MLang runtime or heap is linked into the firmware.
 """
@@ -38,7 +38,11 @@ def main():
     for symbol, definition in definitions.items():
         text = re.sub(r"^declare [^\n]*@" + re.escape(symbol) + r"\([^\n]*\)[^\n]*$",
                       definition, text, flags=re.M)
-    # Null-pointer diagnostics use stdio in v0.4.4. The failure still calls
+    # A source module may have no checked accesses, so its original IR can omit
+    # abort even though the non-throwing rethrow shim above references it.
+    if "@abort(" in text and not re.search(r"^(?:declare|define) [^@\n]*@abort\(", text, re.M):
+        text += "\ndeclare void @abort()\n"
+    # Null-pointer diagnostics use hosted stdio. The failure still calls
     # abort(), whose firmware implementation reports the panic over UART.
     text = re.sub(r"^@(stderr|__stderrp) = .*",
                   r"@\1 = internal global ptr null", text, flags=re.M)

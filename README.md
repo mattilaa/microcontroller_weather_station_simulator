@@ -16,6 +16,9 @@ over **Ethernet** through a virtio-net driver and a minimal IPv4 stack (ARP, pin
 A Python tool imports the log and plots it in the style of the Finnish Meteorological
 Institute's forecast chart:
 
+**Scenario `thunderstorm`**: a hot, humid day. Anvil cirrus spreads ahead of the
+cumulonimbus, then afternoon cloudbursts and gusts.
+
 ![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
 
 The other scenarios, one simulated day each from 06:00 (made with
@@ -23,16 +26,16 @@ The other scenarios, one simulated day each from 06:00 (made with
 
 <table>
 <tr>
-<td width="50%"><b><code>default</code></b>: temperate, afternoon showers from two cumulonimbus<br><img src="docs/scenarios/default.png" alt="default scenario"></td>
-<td width="50%"><b><code>summer_heat</code></b>: up to 37 °C, dry, afternoon cumulus<br><img src="docs/scenarios/summer_heat.png" alt="summer_heat scenario"></td>
+<td width="50%"><b>Scenario <code>default</code></b>: temperate, afternoon showers from two cumulonimbus<br><img src="docs/scenarios/default.png" alt="default scenario"></td>
+<td width="50%"><b>Scenario <code>summer_heat</code></b>: up to 37 °C, dry, afternoon cumulus<br><img src="docs/scenarios/summer_heat.png" alt="summer_heat scenario"></td>
 </tr>
 <tr>
-<td width="50%"><b><code>winter_high</code></b>: −17 to −6 °C under 1040 hPa, calm, low stratus<br><img src="docs/scenarios/winter_high.png" alt="winter_high scenario"></td>
-<td width="50%"><b><code>storm</code></b>: cirrus all morning, then the deep low's gales and rain<br><img src="docs/scenarios/storm.png" alt="storm scenario"></td>
+<td width="50%"><b>Scenario <code>winter_high</code></b>: −17 to −6 °C under 1040 hPa, calm, low stratus<br><img src="docs/scenarios/winter_high.png" alt="winter_high scenario"></td>
+<td width="50%"><b>Scenario <code>storm</code></b>: cirrus all morning, then the deep low's gales and rain<br><img src="docs/scenarios/storm.png" alt="storm scenario"></td>
 </tr>
 <tr>
-<td width="50%"><b><code>mcs</code></b>: an extreme gust front, then hours of trailing rain as the wind dies<br><img src="docs/scenarios/mcs.png" alt="mcs scenario"></td>
-<td width="50%"><b><code>supercell</code></b>: extreme wind for the whole storm, a tornado at its end<br><img src="docs/scenarios/supercell.png" alt="supercell scenario"></td>
+<td width="50%"><b>Scenario <code>mcs</code></b>: an extreme gust front, then hours of trailing rain as the wind dies<br><img src="docs/scenarios/mcs.png" alt="mcs scenario"></td>
+<td width="50%"><b>Scenario <code>supercell</code></b>: extreme wind for the whole storm, a tornado at its end<br><img src="docs/scenarios/supercell.png" alt="supercell scenario"></td>
 </tr>
 </table>
 

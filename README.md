@@ -141,9 +141,9 @@ gusts, how the wind turns, and surface pressure.
 | `summer_heat` | very hot summer day, dry and mostly clear, afternoon cumulus | 20–36 °C, humidity down to ~22 %, no rain, ~1018 hPa |
 | `winter_high` | cold winter high pressure: calm, clear, frost fog/stratus at night, no convection | −16 to −8 °C, 1031–1044 hPa, wind under 3 m/s |
 | `storm` | severe storm: a deep low passes. A calm morning under the low's thickening cirrus shield, then (about 6 hours after the switch) gales, overcast nimbostratus, heavy rain and wind veering SSW → NW, clearing as the low fills | ~966 hPa at its deepest, ~4 m/s under ~90 % cirrus before it, then 15–24 m/s with gusts to ~37 m/s, ~25 mm of rain |
+| `thunderstorm` | hot, humid day: anvil cirrus spreads about 2 hours ahead of towering cumulonimbus cells (each lasting tens of minutes), cloudbursts, gusts, rain cooling | 15–28 °C, cirrus ~90 % before the storm, cumulonimbus up to ~65 %, gusts to ~13 m/s |
 | `mcs` | an approaching mesoscale convective system (8 hours after the switch): its anvil cirrus spreads for ~5 hours ahead; the gust front brings the most extreme wind, a cold outflow, a pressure jump and a line of cumulonimbus with a cloudburst; then ~5 hours of trailing nimbostratus rain as the wind dies down, and a wake low | ~25 m/s at the gust front with gusts to ~55 m/s, ~6 m/s four hours later, ~8 °C cooling, ~40 mm of rain |
 | `supercell` | a supercell (10 hours after the switch): an isolated anvil and strengthening southeasterly inflow for ~4 hours, then 90 minutes of one rotating cumulonimbus tower with extreme wind throughout, torrential rain and hail in its forward flank, and a tornado in its last 15 minutes. It clears quickly behind | ~25 m/s for the whole storm, ~35 mm of rain in an hour, the tornado: gusts to ~75 m/s and a ~20 hPa pressure drop |
-| `thunderstorm` | hot, humid day: anvil cirrus spreads about 2 hours ahead of towering cumulonimbus cells (each lasting tens of minutes), cloudbursts, gusts, rain cooling | 15–28 °C, cirrus ~90 % before the storm, cumulonimbus up to ~65 %, gusts to ~13 m/s |
 
 How to choose one:
 - **QEMU command line:** `-fw_cfg name=opt/weather/scenario,string=storm`, read at boot like
@@ -161,6 +161,30 @@ and a storm's low deepens over 12 hours and fills over the next 12. The storm's 
 and wind arrive with the falling pressure: before them, only its cirrus shield. The cloud base (LCL) is
 computed from the actual surface pressure, and the chart's wind panel shows the pressure on
 a right-hand hPa axis.
+
+### Example days
+
+One simulated day of each scenario, from 06:00, made with
+`python tools/weather_tool.py demo --scenario <name>`:
+
+<table>
+<tr>
+<td width="50%"><b><code>default</code></b>: temperate, afternoon showers from two cumulonimbus<br><img src="docs/scenarios/default.png" alt="default scenario"></td>
+<td width="50%"><b><code>summer_heat</code></b>: up to 37 °C, dry, afternoon cumulus<br><img src="docs/scenarios/summer_heat.png" alt="summer_heat scenario"></td>
+</tr>
+<tr>
+<td><b><code>winter_high</code></b>: −17 to −6 °C under 1040 hPa, calm, low stratus<br><img src="docs/scenarios/winter_high.png" alt="winter_high scenario"></td>
+<td><b><code>storm</code></b>: cirrus all morning, then the deep low's gales and rain<br><img src="docs/scenarios/storm.png" alt="storm scenario"></td>
+</tr>
+<tr>
+<td><b><code>thunderstorm</code></b>: anvil cirrus first, then cumulonimbus and cloudbursts<br><img src="docs/weather_chart.png" alt="thunderstorm scenario"></td>
+<td><b><code>mcs</code></b>: an extreme gust front, then hours of trailing rain as the wind dies<br><img src="docs/scenarios/mcs.png" alt="mcs scenario"></td>
+</tr>
+<tr>
+<td><b><code>supercell</code></b>: extreme wind for the whole storm, a tornado at its end<br><img src="docs/scenarios/supercell.png" alt="supercell scenario"></td>
+<td></td>
+</tr>
+</table>
 
 ## Weather simulation
 

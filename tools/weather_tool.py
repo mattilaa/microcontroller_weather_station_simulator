@@ -218,7 +218,7 @@ RAIN_COLOR = "#3b6fd4"
 # All clouds share one colour scale: the denser the cloud, the darker it is,
 # from thin wispy cirrus to the towering, opaque cumulonimbus.
 CLOUD_TYPES = [
-    # Drawn in this order. key, label, density (optical thickness at full
+    # key, label, density (optical thickness at full
     # cover), base, top: a column name (per record) or a fixed hPa
     # (fallback for older CSVs); then how soft the lower and upper edges
     # are, as fractions of the layer's depth.
@@ -231,8 +231,9 @@ CLOUD_TYPES = [
     ("nimbostratus", "Nimbostratus", 2.6, ("lcl", 950), ("nimbostratus_top", 550), 0.15, 0.25),
     ("cumulonimbus", "Cumulonimbus", 4.0, ("lcl", 900), (None, 200), 0.04, 0.15),
 ]
-CLOUD_LIGHT = "#c3ccd8"  # the thinnest visible cloud
-CLOUD_DARK = "#1f2a3a"   # the densest
+CLOUD_LIGHT = "#dfdfdf"  # the thinnest visible cloud
+CLOUD_DARK = "#555555"   # dense cloud cores
+CLOUD_BANDS = [0.015, 0.12, 0.25, 0.45, 0.75, 1.2, 1.8, 2.6, 3.6, 5.0, 8.0]
 LCL_COLOR = "#c0601a"
 PRESSURE_TICKS = [1000, 850, 700, 500, 300, 200]
 # Standard-atmosphere heights of those levels, for the km scale.
@@ -262,32 +263,74 @@ def smoothstep(x):
 
 def cloud_colours(thickness):
     """RGBA for cloud optical thicknesses: transparent where there's none,
-    then from light grey to dark slate as the cloud gets thicker."""
+    then from pale grey to charcoal as the cloud gets thicker."""
     import matplotlib.colors
     import numpy as np
 
-    darkness = 1 - np.exp(-thickness / 1.6)  # 0 clear .. 1 opaque
+    darkness = 1 - np.exp(-thickness / 1.7)  # 0 clear .. 1 opaque
     light = np.array(matplotlib.colors.to_rgb(CLOUD_LIGHT))
     dark = np.array(matplotlib.colors.to_rgb(CLOUD_DARK))
     shade = np.clip((darkness - 0.1) / 0.85, 0, 1)[..., None]
     rgba = np.empty(thickness.shape + (4,))
     rgba[..., :3] = light + (dark - light) * shade
-    rgba[..., 3] = np.clip(darkness * 2.2, 0, 1)  # faint cloud fades out
+    rgba[..., 3] = np.clip(darkness * 4.0, 0, 1)  # faint cloud fades out
     return rgba
 
 
-def draw_cloud_panel(ax, readings):
-    """Time-height cross-section of the cloud layers on a pressure axis.
+def cloud_density(readings, rows=300):
+    """Interpolate measured layer amounts/heights for a smooth display field.
 
-    Rendered as an image on a log-pressure grid (pressure falls roughly
-    exponentially with height): one column per 10-minute record, no smoothing
-    between records. Each layer spans its own base and top for that record
-    and has edges shaped like the cloud: cumulus a flat base at the LCL and
-    a soft billowing top, cirrus wispy and densest in the middle, altostratus
-    a sheet. All types share one colour scale: their optical thickness adds
-    up, and the thicker the cloud, the darker it is. The LCL is drawn as a
-    line."""
-    import matplotlib.colors
+    Interpolation stays between adjacent records. Missing record intervals are
+    masked rather than inventing clouds across a gap in the imported data.
+    """
+    import matplotlib.dates as mdates
+    import numpy as np
+
+    width = RECORD_MINUTES / 1440
+    centers = np.array([mdates.date2num(r["when"]) - width / 2 for r in readings])
+    left, right = centers[0] - width / 2, centers[-1] + width / 2
+    samples = max(5, min(4096, math.ceil((right - left) / width * 4) + 1))
+    times = np.unique(np.r_[np.linspace(left, right, samples), centers])
+    levels = np.log(np.geomspace(185.0, 1050.0, rows))
+    thickness = np.zeros((rows, len(times)))
+
+    def interpolate(values):
+        return np.interp(times, centers, values)[None, :]
+
+    for key, _, density, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
+        amount = interpolate([min(max((r.get(key) or 0.0) / 100.0, 0.0), 1.0) for r in readings])
+        base = interpolate([math.log(r.get(base_key) or base_fixed) if base_key else math.log(base_fixed)
+                            for r in readings])
+        top = interpolate([math.log(r.get(top_key) or top_fixed) if top_key else math.log(top_fixed)
+                           for r in readings])
+        depth = base - top
+        valid = depth > 0
+        safe_depth = np.where(valid, depth, 1.0)
+        above_base = (base - levels[:, None]) / (safe_depth * soft_base)
+        below_top = (levels[:, None] - top) / (safe_depth * soft_top)
+        profile = smoothstep(above_base) * smoothstep(below_top)
+        if key == "cirrus":
+            profile *= np.exp(-(((levels[:, None] - (base + top) / 2) / (safe_depth / 2.2)) ** 2))
+        else:
+            # A graded interior reveals overlapping layers instead of painting
+            # a solid wall from cloud base to top. No synthetic weather noise.
+            height = np.clip((levels[:, None] - top) / safe_depth, 0.0, 1.0)
+            profile *= 0.35 + 0.65 * np.sin(np.pi * height) ** 0.8
+        thickness += profile * density * amount * valid
+
+    for previous, following in zip(centers, centers[1:]):
+        if following - previous > width * 1.5:
+            missing = (times > previous + width / 2) & (times < following - width / 2)
+            thickness[:, missing] = np.nan
+    return times, levels, thickness
+
+
+def draw_cloud_panel(ax, readings):
+    """Windy-style grayscale cloud contours on a log-pressure height axis.
+
+    Cloud amounts and layer boundaries are interpolated only for rendering;
+    measurements, rain totals, and the simulated weather remain unchanged.
+    """
     import matplotlib.dates as mdates
     import numpy as np
     from matplotlib.lines import Line2D
@@ -296,41 +339,18 @@ def draw_cloud_panel(ax, readings):
 
     layered = [r for r in readings if r.get("lcl") is not None]
     p_bottom, p_top = 1050.0, 185.0
-    rows = 300
-    levels = np.log(np.geomspace(p_top, p_bottom, rows))  # row 0 = top of the sky
-    width = RECORD_MINUTES / 1440  # one column per record, in days
-
-    thickness = np.zeros((rows, len(layered)))
-    for key, _, density, (base_key, base_fixed), (top_key, top_fixed), soft_base, soft_top in CLOUD_TYPES:
-        for column, r in enumerate(layered):
-            amount = min((r.get(key) or 0.0) / 100.0, 1.0)
-            if amount <= 0.005:
-                continue
-            base = np.log(r.get(base_key) or base_fixed) if base_key else np.log(base_fixed)
-            top = np.log(r.get(top_key) or top_fixed) if top_key else np.log(top_fixed)
-            depth = base - top  # in log-pressure, base is the larger value
-            if depth <= 0:
-                continue
-            above_base = (base - levels) / (depth * soft_base)  # 0 at the base
-            below_top = (levels - top) / (depth * soft_top)     # 0 at the top
-            profile = smoothstep(above_base) * smoothstep(below_top)
-            if key == "cirrus":
-                # Wispy: densest in the middle of the layer.
-                middle = (base + top) / 2
-                profile *= np.exp(-(((levels - middle) / (depth / 2.2)) ** 2))
-            # Even a little cloud shows; more of it is thicker.
-            thickness[:, column] += profile * density * (0.25 + 0.75 * amount)
-
-    image = cloud_colours(thickness)
-    starts = [mdates.date2num(r["when"]) - width for r in layered]
-    ax.imshow(image, extent=(starts[0], starts[-1] + width, np.log(p_bottom), np.log(p_top)),
-              aspect="auto", interpolation="nearest", origin="upper", zorder=2)
+    width = RECORD_MINUTES / 1440
+    times, levels, thickness = cloud_density(layered)
+    swatches = cloud_colours(np.array([(low + high) / 2 for low, high in zip(CLOUD_BANDS, CLOUD_BANDS[1:])]))
+    ax.set_facecolor("#f7f7f9")
+    ax.contourf(times, levels, np.ma.masked_invalid(thickness), levels=CLOUD_BANDS,
+                colors=swatches, extend="max", antialiased=True, corner_mask=False, zorder=2)
     ax.set_ylim(np.log(p_bottom), np.log(p_top))  # surface at the bottom
     ticks = np.log(PRESSURE_TICKS)
     ax.yaxis.set_major_locator(FixedLocator(ticks))
     ax.yaxis.set_minor_locator(NullLocator())
     ax.set_yticklabels([str(p) for p in PRESSURE_TICKS])
-    ax.grid(axis="y", color=GRID_COLOR, lw=1, zorder=1)
+    ax.grid(axis="y", color="#c9c9ce", lw=0.8, ls=(0, (4, 3)), zorder=3)
 
     # A tornado: a funnel from the lowered wall cloud down to the ground.
     for r in layered:
@@ -353,12 +373,12 @@ def draw_cloud_panel(ax, readings):
     km.spines["right"].set_visible(False)
     ax.text(1, 1.02, "km", transform=ax.transAxes, ha="left", va="bottom", fontsize=12, color="#444444")
 
-    # Each type's swatch is its shade at 70 % cover.
-    swatches = cloud_colours(np.array([[density * (0.25 + 0.75 * 0.7) for _, _, density, *_ in CLOUD_TYPES]]))[0]
-    handles = [Patch(facecolor=swatch, label=label) for swatch, (_, label, *_) in zip(swatches, CLOUD_TYPES)]
-    handles.append(Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)"))
-    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=len(handles),
-              frameon=False, fontsize=9, handlelength=1.2, handletextpad=0.4, columnspacing=0.9)
+    handles = [Patch(facecolor="#dddddd", label="Thin cloud"),
+               Patch(facecolor="#aaaaaa", label="Cloud"),
+               Patch(facecolor="#666666", label="Dense cloud"),
+               Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)")]
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=4,
+              frameon=False, fontsize=9, handlelength=1.2, handletextpad=0.4, columnspacing=1.2)
 
 
 def plot(readings, out_path, hours=24, title=None):

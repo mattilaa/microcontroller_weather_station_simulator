@@ -14,14 +14,15 @@ Its simulated sensors measure temperature, humidity, wind speed and direction, r
 cloud cover, and cloud layers. Readings are printed on the UART, logged, and served
 over **Ethernet** through a virtio-net driver and a minimal IPv4 stack (ARP, ping, UDP).
 A Python tool imports the log and plots it in the style of the Finnish Meteorological
-Institute's forecast chart:
+Institute's forecast chart, with Windy-style cloud shading:
 
 **Scenario `thunderstorm`**: a hot, humid day. Anvil cirrus spreads ahead of the
 cumulonimbus, then afternoon cloudbursts and gusts.
 
-![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)
+[![A simulated thunderstorm day (scenario thunderstorm)](docs/weather_chart.png)](docs/scenarios/thunderstorm.png)
 
-The other scenarios, one simulated day each from 06:00 (made with
+All seven scenario charts use the same cloud shading. The other scenarios,
+one simulated day each from 06:00 (made with
 `python tools/weather_tool.py demo --scenario <name>`; see [Weather scenarios](#weather-scenarios)):
 
 <table>
@@ -242,11 +243,11 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
 - **Top panel:** temperature (red), dew point (green, dotted, computed from temperature and
   humidity), and hourly precipitation bars on the right-hand mm axis.
 - **Cloud panel** (with cloud layer data): a time-height cross-section on a log-pressure
-  axis, 1000 hPa at the bottom to 200 hPa at the top, with km on the right. Each 10-minute
-  record is one column, with no smoothing between records. Every cloud type spans its own
-  base and top for that record. All types share one grey colour scale: their thickness adds
-  up, and the denser the cloud, the darker it is, from pale thin cirrus to near-black
-  cumulonimbus. More of a type is denser:
+  axis, 1000 hPa at the bottom to 200 hPa at the top, with km on the right.
+  Windy-style grayscale contours show cloud density: pale edges, layered grey bands,
+  and darker cores. Cloud amounts and base/top heights are interpolated between
+  adjacent 10-minute records for display; missing record intervals stay blank.
+  All cloud types contribute to the same shading, with denser cover appearing darker:
   - cirrus is wispy and densest in its middle, drifting around 10 km
   - altostratus is an undulating sheet, with patchy altocumulus in it
   - stratus and stratocumulus are low layers resting on the cloud base

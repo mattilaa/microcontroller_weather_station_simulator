@@ -256,9 +256,12 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   - cumulonimbus has a narrower convective core and a spreading upper anvil;
     stronger recorded gusts broaden the anvil and lower storm-base skirt
 
-  Storm shapes are schematic profiles on the time axis. They illustrate the
-  anvil/core structure and broader base of severe storms while preserving the
-  logged readings and rainfall totals.
+  Storm shapes are schematic profiles on the time axis. A rightward motion arrow
+  defines the drawing convention: the base stays anchored while the core and
+  anvil lean progressively in that direction, with stronger shear for severe
+  storms. Supercells also have a smaller back-sheared anvil extending against
+  that motion, labelled on the chart. Surface wind arrows retain their recorded
+  compass directions. Logged readings and rainfall totals stay unchanged.
 
   The LCL (cloud base) is a dashed line, and a tornado is a red funnel to the ground.
 - **Bottom panel:** wind. The solid line (with a light fill) is each 10-minute record's mean
@@ -286,6 +289,10 @@ python tools/weather_tool.py plot weather.csv --out weather.png --hours 24
 # Instant: fast-forward without waiting at all.
 python tools/weather_tool.py demo --firmware build/firmware.elf --minutes 2880 --hours 48
 ```
+
+`demo` and `record` select the cloud profile from the firmware scenario. When
+replotting a supercell CSV, use `plot weather.csv --scenario supercell` to retain
+its back-sheared anvil, including records from before a tornado occurs.
 
 The CSV columns are
 `seq,day,time,temperature,humidity,wind_speed,wind_direction,rain,cloud_cover,lcl,cirrus,altostratus,cumulus,cumulus_top,cumulonimbus,cirrus_base,cirrus_top,altostratus_base,altostratus_top,stratus,stratocumulus,nimbostratus,altocumulus,stratus_top,stratocumulus_top,nimbostratus_top,altocumulus_base,altocumulus_top,pressure,wind_gust,tornado`

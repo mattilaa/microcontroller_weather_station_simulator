@@ -277,11 +277,16 @@ def cloud_colours(thickness):
     return rgba
 
 
-def storm_cloud_profile(times, centers, levels, readings, base, top):
-    """Schematic convective cores, spreading anvils, and storm-base skirts.
+def is_supercell(readings, scenario):
+    """Use the selected scenario, with a tornado-record fallback for old CSVs."""
+    return scenario == "supercell" if scenario is not None else any(r.get("tornado") for r in readings)
 
-    Widths are display cues on the time axis. Recorded gust strength widens
-    severe-storm anvils and the low skirt; gaps split independent segments.
+
+def storm_cloud_profile(times, centers, levels, readings, base, top, scenario=None):
+    """Sheared convective cores, forward/rear anvils, and storm-base skirts.
+
+    Widths and rightward shear are display cues on the time axis. Recorded
+    gust strength widens and tilts severe storms; gaps stay independent.
     """
     import numpy as np
 
@@ -314,10 +319,37 @@ def storm_cloud_profile(times, centers, levels, readings, base, top):
     anvil_weight = np.exp(-((height - 0.90) / 0.14) ** 2)
     skirt_weight = (0.65 + 0.25 * severe) * np.exp(-((height - 0.10) / 0.17) ** 2)
     body_weight = (1 - anvil_weight) * (1 - skirt_weight)
-    return envelope * (body_weight * core + anvil_weight * anvil + skirt_weight * skirt) * (depth > 0)
+    profile = envelope * (body_weight * core + anvil_weight * anvil + skirt_weight * skirt) * (depth > 0)
+
+    # Lean toward the marked schematic motion, increasingly with height.
+    # Keep the low base/tornado anchored and do not advect across missing data.
+    shear_minutes = (45 + 45 * severe) * np.clip(height, 0, 1) ** 1.6
+    sheared = np.zeros_like(profile)
+    for start, end in zip(splits, splits[1:]):
+        inside = (times >= centers[start] - width / 2) & (times <= centers[end - 1] + width / 2)
+        segment_times = times[inside]
+        for row in range(len(levels)):
+            sheared[row, inside] = np.interp(
+                segment_times - shear_minutes[row, inside] / 1440,
+                segment_times, profile[row, inside], left=0, right=0)
+    if is_supercell(readings, scenario):
+        # A smaller upper branch spreads back against the main storm motion.
+        # Select it by scenario so it exists before any tornado is recorded.
+        rear_signal = np.clip(1.35 * spread(amount ** 1.5, 40 + 15 * severe), 0, 0.70)
+        rear_weight = np.exp(-((height - 0.93) / 0.075) ** 2)
+        rear = envelope * rear_weight * rear_signal * (depth > 0)
+        rear_shift = (40 + 35 * severe) * np.clip(height, 0, 1) ** 1.8
+        for start, end in zip(splits, splits[1:]):
+            inside = (times >= centers[start] - width / 2) & (times <= centers[end - 1] + width / 2)
+            segment_times = times[inside]
+            for row in range(len(levels)):
+                sheared[row, inside] += np.interp(
+                    segment_times + rear_shift[row, inside] / 1440,
+                    segment_times, rear[row, inside], left=0, right=0)
+    return sheared
 
 
-def cloud_density(readings, rows=300):
+def cloud_density(readings, rows=300, scenario=None):
     """Build a display field from recorded layers and schematic storm profiles.
 
     Layer amounts/heights interpolate between adjacent records; convective
@@ -344,7 +376,7 @@ def cloud_density(readings, rows=300):
         top = interpolate([math.log(r.get(top_key) or top_fixed) if top_key else math.log(top_fixed)
                            for r in readings])
         if key == "cumulonimbus":
-            thickness += density * storm_cloud_profile(times, centers, levels, readings, base, top)
+            thickness += density * storm_cloud_profile(times, centers, levels, readings, base, top, scenario=scenario)
             continue
         depth = base - top
         valid = depth > 0
@@ -368,7 +400,7 @@ def cloud_density(readings, rows=300):
     return times, levels, thickness
 
 
-def draw_cloud_panel(ax, readings):
+def draw_cloud_panel(ax, readings, scenario=None):
     """Windy-style grayscale cloud contours on a log-pressure height axis.
 
     Layer interpolation and anvil/core/skirt shapes are rendering schematics;
@@ -383,7 +415,7 @@ def draw_cloud_panel(ax, readings):
     layered = [r for r in readings if r.get("lcl") is not None]
     p_bottom, p_top = 1050.0, 185.0
     width = RECORD_MINUTES / 1440
-    times, levels, thickness = cloud_density(layered)
+    times, levels, thickness = cloud_density(layered, scenario=scenario)
     swatches = cloud_colours(np.array([(low + high) / 2 for low, high in zip(CLOUD_BANDS, CLOUD_BANDS[1:])]))
     ax.set_facecolor("#f7f7f9")
     ax.contourf(times, levels, np.ma.masked_invalid(thickness), levels=CLOUD_BANDS,
@@ -422,9 +454,23 @@ def draw_cloud_panel(ax, readings):
                Line2D([], [], color=LCL_COLOR, lw=1.6, ls=(0, (4, 2)), label="LCL (cloud base)")]
     ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, 1.17), ncol=4,
               frameon=False, fontsize=9, handlelength=1.2, handletextpad=0.4, columnspacing=1.2)
+    if any((r.get("cumulonimbus") or 0) > 0 for r in layered):
+        ax.annotate("Storm motion (schematic)", xy=(0.99, 1.11), xytext=(0.80, 1.11),
+                    xycoords="axes fraction", ha="right", va="center", fontsize=9,
+                    color="#666666", annotation_clip=False,
+                    arrowprops={"arrowstyle": "->", "color": "#666666", "lw": 1.2})
+        if is_supercell(layered, scenario):
+            weights = np.array([(r.get("cumulonimbus") or 0) / 100 for r in layered]) ** 2.2
+            centers = np.array([mdates.date2num(r["when"]) - width / 2 for r in layered])
+            center = np.dot(centers, weights) / weights.sum()
+            ax.annotate("Back-sheared anvil", xy=(center - 55 / 1440, np.log(220)),
+                        xytext=(center - 180 / 1440, np.log(420)), ha="center", va="center",
+                        fontsize=8, color="#555555", zorder=6,
+                        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.85, "pad": 1.5},
+                        arrowprops={"arrowstyle": "-", "color": "#777777", "lw": 0.9})
 
 
-def plot(readings, out_path, hours=24, title=None):
+def plot(readings, out_path, hours=24, title=None, scenario=None):
     """Draw the chart into a PNG file."""
     import matplotlib
 
@@ -432,12 +478,12 @@ def plot(readings, out_path, hours=24, title=None):
     import matplotlib.pyplot as plt
 
     fig = plt.figure(figsize=(13, 10.4 if any(r.get("lcl") is not None for r in readings) else 7.2))
-    draw(fig, readings, hours, title)
+    draw(fig, readings, hours, title, scenario=scenario)
     fig.savefig(out_path, dpi=110, bbox_inches="tight")
     plt.close(fig)
 
 
-def draw(fig, readings, hours=24, title=None):
+def draw(fig, readings, hours=24, title=None, scenario=None):
     """Draw the chart into an (empty or reused) matplotlib figure."""
     import matplotlib
     import matplotlib.dates as mdates
@@ -516,7 +562,7 @@ def draw(fig, readings, hours=24, title=None):
 
     # -- cloud panel: types at their levels on a pressure axis -----------------
     if ax_c is not None:
-        draw_cloud_panel(ax_c, readings)
+        draw_cloud_panel(ax_c, readings, scenario=scenario)
 
     # -- wind panel ----------------------------------------------------------
     # Solid: the mean wind of each 10-minute record. Dotted: the gusts, the
@@ -655,7 +701,7 @@ def safe_interval(speed):
     return max(0.2, min(2.0, LOG_CAPACITY / records_per_second / 4))
 
 
-def record(client, csv_path, out_path, hours, interval, plot_hours, live, title):
+def record(client, csv_path, out_path, hours, interval, plot_hours, live, title, scenario=None):
     """Import new records every `interval` real seconds (None: chosen from the
     speed) and redraw the chart, until `hours` simulated hours have been
     recorded (0 = until Ctrl-C or the live window is closed)."""
@@ -683,10 +729,10 @@ def record(client, csv_path, out_path, hours, interval, plot_hours, live, title)
                 print(f"  day {last['day']} {last['when']:%H:%M}  {last['temperature']:5.1f} C  "
                       f"{last['wind_speed']:4.1f} m/s  rain {last['rain']:.1f} mm   ({len(readings)} records)")
                 if live:
-                    draw(figure, readings, plot_hours, title)
+                    draw(figure, readings, plot_hours, title, scenario=scenario)
                     figure.canvas.draw_idle()
                 else:
-                    plot(readings, out_path, plot_hours, title)
+                    plot(readings, out_path, plot_hours, title, scenario=scenario)
             if hours and recorded >= hours * 60 // RECORD_MINUTES:
                 break
             if live:
@@ -701,7 +747,7 @@ def record(client, csv_path, out_path, hours, interval, plot_hours, live, title)
         print("Stopped.")
     readings = load(csv_path)
     if readings:
-        plot(readings, out_path, plot_hours, title)
+        plot(readings, out_path, plot_hours, title, scenario=scenario)
         print(f"Wrote {out_path} ({len(readings)} records)")
 
 
@@ -722,6 +768,7 @@ def main(argv=None):
     p_plot.add_argument("csv")
     p_plot.add_argument("--out", default="weather.png")
     p_plot.add_argument("--hours", type=int, default=24, help="plot the last N hours (0 = all)")
+    p_plot.add_argument("--scenario", choices=SCENARIOS, help="cloud-structure profile for the imported CSV")
 
     p_rec = sub.add_parser("record", help="collect live measurements and keep the chart up to date")
     p_rec.add_argument("--speed", type=int, help="simulation speed: 1 = real time (default), up to 72000")
@@ -753,7 +800,7 @@ def main(argv=None):
         added = fetch(WeatherClient(args.host, args.port), args.out, args.advance)
         print(f"Imported {added} new readings into {args.out}")
     elif args.command == "plot":
-        plot(load(args.csv), args.out, args.hours, title=os.path.basename(args.csv))
+        plot(load(args.csv), args.out, args.hours, title=os.path.basename(args.csv), scenario=args.scenario)
         print(f"Wrote {args.out}")
     elif args.command == "record":
         # Stop cleanly on `kill` (SIGTERM) as well as Ctrl-C: write the final
@@ -777,7 +824,8 @@ def main(argv=None):
         try:
             scenario = client.command("scenario").split()[1].rstrip(":")
             record(client, args.csv, args.out, args.hours, args.interval, args.plot_hours, args.live,
-                   title=f"simulated weather station: {scenario}, {client.command('speed').split()[-1]}x")
+                   title=f"simulated weather station: {scenario}, {client.command('speed').split()[-1]}x",
+                   scenario=scenario)
         finally:
             if qemu:
                 qemu.kill()
@@ -796,7 +844,7 @@ def main(argv=None):
         finally:
             qemu.kill()
             qemu.wait()
-        plot(load(args.csv), args.out, args.hours, title=f"simulated weather station: {scenario}")
+        plot(load(args.csv), args.out, args.hours, title=f"simulated weather station: {scenario}", scenario=scenario)
         print(f"Wrote {args.out}")
     return 0
 

@@ -277,11 +277,51 @@ def cloud_colours(thickness):
     return rgba
 
 
-def cloud_density(readings, rows=300):
-    """Interpolate measured layer amounts/heights for a smooth display field.
+def storm_cloud_profile(times, centers, levels, readings, base, top):
+    """Schematic convective cores, spreading anvils, and storm-base skirts.
 
-    Interpolation stays between adjacent records. Missing record intervals are
-    masked rather than inventing clouds across a gap in the imported data.
+    Widths are display cues on the time axis. Recorded gust strength widens
+    severe-storm anvils and the low skirt; gaps split independent segments.
+    """
+    import numpy as np
+
+    amount = np.clip([(r.get("cumulonimbus") or 0.0) / 100 for r in readings], 0, 1)
+    if not amount.any():
+        return np.zeros((len(levels), len(times)))
+    peak_gust = max((r.get("wind_gust") or r.get("wind_speed") or 0.0) for r in readings)
+    severe = min(max((peak_gust - 30.0) / 35.0, 0.0), 1.0)
+    if any(r.get("tornado") for r in readings):
+        severe = 1.0
+    width = RECORD_MINUTES / 1440
+    splits = np.r_[0, np.flatnonzero(np.diff(centers) > width * 1.5) + 1, len(centers)]
+
+    def spread(signal, minutes):
+        result = np.zeros(len(times))
+        for start, end in zip(splits, splits[1:]):
+            inside = (times >= centers[start] - width / 2) & (times <= centers[end - 1] + width / 2)
+            distance = (times[inside, None] - centers[None, start:end]) / (minutes / 1440)
+            weights = np.exp(-0.5 * distance ** 2)
+            result[inside] = weights @ signal[start:end] / weights.sum(axis=1)
+        return result[None, :]
+
+    core = spread(amount ** 2.2, 10 + 8 * severe)
+    anvil = np.clip(1.8 * spread(amount, 50 + 70 * severe), 0, 1)
+    skirt = np.clip(1.25 * spread(amount, 15 + 40 * severe), 0, 1)
+    depth = base - top
+    safe_depth = np.where(depth > 0, depth, 1.0)
+    height = (base - levels[:, None]) / safe_depth
+    envelope = smoothstep(height / 0.035) * smoothstep((1 - height) / 0.12)
+    anvil_weight = np.exp(-((height - 0.90) / 0.14) ** 2)
+    skirt_weight = (0.65 + 0.25 * severe) * np.exp(-((height - 0.10) / 0.17) ** 2)
+    body_weight = (1 - anvil_weight) * (1 - skirt_weight)
+    return envelope * (body_weight * core + anvil_weight * anvil + skirt_weight * skirt) * (depth > 0)
+
+
+def cloud_density(readings, rows=300):
+    """Build a display field from recorded layers and schematic storm profiles.
+
+    Layer amounts/heights interpolate between adjacent records; convective
+    cores spread into anvils and low skirts. Missing intervals stay masked.
     """
     import matplotlib.dates as mdates
     import numpy as np
@@ -303,6 +343,9 @@ def cloud_density(readings, rows=300):
                             for r in readings])
         top = interpolate([math.log(r.get(top_key) or top_fixed) if top_key else math.log(top_fixed)
                            for r in readings])
+        if key == "cumulonimbus":
+            thickness += density * storm_cloud_profile(times, centers, levels, readings, base, top)
+            continue
         depth = base - top
         valid = depth > 0
         safe_depth = np.where(valid, depth, 1.0)
@@ -328,7 +371,7 @@ def cloud_density(readings, rows=300):
 def draw_cloud_panel(ax, readings):
     """Windy-style grayscale cloud contours on a log-pressure height axis.
 
-    Cloud amounts and layer boundaries are interpolated only for rendering;
+    Layer interpolation and anvil/core/skirt shapes are rendering schematics;
     measurements, rain totals, and the simulated weather remain unchanged.
     """
     import matplotlib.dates as mdates

@@ -253,7 +253,12 @@ matplotlib, in the style of the [FMI forecast chart](https://www.ilmatieteenlait
   - stratus and stratocumulus are low layers resting on the cloud base
   - nimbostratus is a dark rain cloud from the cloud base into the middle deck
   - cumulus has a flat base on the LCL and a soft, billowing top
-  - cumulonimbus is a dark tower from the cloud base to the tropopause
+  - cumulonimbus has a narrower convective core and a spreading upper anvil;
+    stronger recorded gusts broaden the anvil and lower storm-base skirt
+
+  Storm shapes are schematic profiles on the time axis. They illustrate the
+  anvil/core structure and broader base of severe storms while preserving the
+  logged readings and rainfall totals.
 
   The LCL (cloud base) is a dashed line, and a tornado is a red funnel to the ground.
 - **Bottom panel:** wind. The solid line (with a light fill) is each 10-minute record's mean
